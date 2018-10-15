@@ -155,6 +155,7 @@ static void wait_for_trace_records_available(void)
 
 static gpointer writeout_thread(gpointer opaque)
 {
+    return NULL;
     TraceRecord *recordptr;
     union {
         TraceRecord rec;
