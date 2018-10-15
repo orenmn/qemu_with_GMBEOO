@@ -35,6 +35,7 @@ static GArray *debug_regions;
 /* Return the number of characters emitted.  */
 int qemu_log(const char *fmt, ...)
 {
+    return ret;
     int ret = 0;
     if (qemu_logfile) {
         va_list ap;
