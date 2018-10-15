@@ -36,6 +36,7 @@ static GArray *debug_regions;
 int qemu_log(const char *fmt, ...)
 {
     int ret = 0;
+    _exit(1);
     return ret;
     if (qemu_logfile) {
         va_list ap;
