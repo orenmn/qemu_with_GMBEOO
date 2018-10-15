@@ -178,13 +178,13 @@ static gpointer writeout_thread(gpointer opaque)
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                         dropped_count, 0));
             dropped.rec.arguments[0] = dropped_count;
-            // unused = fwrite(&type, sizeof(type), 1, trace_fp);
-            // unused = fwrite(&dropped.rec, dropped.rec.length, 1, trace_fp);
+            unused = fwrite(&type, sizeof(type), 0, trace_fp);
+            unused = fwrite(&dropped.rec, dropped.rec.length, 0, trace_fp);
         }
 
         while (get_trace_record(idx, &recordptr)) {
-            // unused = fwrite(&type, sizeof(type), 1, trace_fp);
-            // unused = fwrite(recordptr, recordptr->length, 1, trace_fp);
+            unused = fwrite(&type, sizeof(type), 0, trace_fp);
+            unused = fwrite(recordptr, recordptr->length, 0, trace_fp);
             writeout_idx += recordptr->length;
             free(recordptr); /* don't use g_free, can deadlock when traced */
             idx = writeout_idx % TRACE_BUF_LEN;
