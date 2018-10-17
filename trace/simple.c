@@ -55,6 +55,7 @@ static volatile gint dropped_events;
 static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
+static bool _orenmn_single_event_compact_trace_file;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
 #define TRACE_RECORD_TYPE_EVENT   1
@@ -166,7 +167,6 @@ static gpointer writeout_thread(gpointer opaque)
     uint64_t type = TRACE_RECORD_TYPE_EVENT;
     int i = 0;
     size_t nitems = 0;
-    unsigned int old_writeout_idx = 0;
 
     for (;;) {
         wait_for_trace_records_available();
@@ -194,7 +194,6 @@ static gpointer writeout_thread(gpointer opaque)
             unused = fwrite(&dropped.rec, dropped.rec.length, nitems, trace_fp);
         }
 
-        old_writeout_idx = writeout_idx;
         while (get_trace_record(idx, &recordptr)) {
             unused = fwrite(&type, sizeof(type), nitems, trace_fp);
             unused = fwrite(recordptr, recordptr->length, nitems, trace_fp);
@@ -202,8 +201,6 @@ static gpointer writeout_thread(gpointer opaque)
             free(recordptr); /* don't use g_free, can deadlock when traced */
             idx = writeout_idx % TRACE_BUF_LEN;
         }
-        printf("i: %d, writeout_idx - old_writeout_idx: %u\n", i,
-               writeout_idx - old_writeout_idx);
 
         fflush(trace_fp);
     }
@@ -340,7 +337,7 @@ void st_set_trace_file_enabled(bool enable)
             return;
         }
 
-        if (false) {
+        if (!_orenmn_single_event_compact_trace_file) {
             if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
                 st_write_event_mapping() < 0) {
                 fclose(trace_fp);
@@ -415,10 +412,11 @@ static GThread *trace_thread_create(GThreadFunc fn)
     return thread;
 }
 
-bool st_init(void)
+bool st_init(bool orenmn_single_event_compact_trace_file)
 {
     GThread *thread;
 
+    _orenmn_single_event_compact_trace_file = orenmn_single_event_compact_trace_file;
     trace_pid = getpid();
 
     thread = trace_thread_create(writeout_thread);

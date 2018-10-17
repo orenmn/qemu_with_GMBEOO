@@ -4457,6 +4457,15 @@ e.g to launch a SEV guest
 
 ETEXI
 
+HXCOMM options by orenmn:
+DEF("single-event-compact-trace-file", 0, QEMU_OPTION_orenmn_single_event_compact_trace_file,
+    "-single-event-compact-trace-file   When specified, qemu assumes that only a single event is ever on, so it doesn’t write to the trace file the mappings, nor does it add a type field (i.e. mapping/event) to each record\n",
+    QEMU_ARCH_ALL)
+STEXI
+@item -single-event-compact-trace-file
+@findex -single-event-compact-trace-file
+When specified, qemu assumes that only a single event is ever on, so it doesn’t write to the trace file the mappings, nor does it add a type field (i.e. mapping/event) to each record.
+ETEXI
 
 HXCOMM This is the last statement. Insert new options before this line!
 STEXI

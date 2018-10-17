@@ -289,7 +289,7 @@ void trace_fini_vcpu(CPUState *vcpu)
 bool trace_init_backends(void)
 {
 #ifdef CONFIG_TRACE_SIMPLE
-    if (!st_init()) {
+    if (!st_init(orenmn_single_event_compact_trace_file)) {
         fprintf(stderr, "failed to initialize simple tracing backend.\n");
         return false;
     }

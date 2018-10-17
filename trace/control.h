@@ -248,6 +248,7 @@ void trace_enable_events(const char *line_buf);
  * Definition of QEMU options describing trace subsystem configuration
  */
 extern QemuOptsList qemu_trace_opts;
+extern bool orenmn_single_event_compact_trace_file;
 
 /**
  * trace_opt_parse:
