@@ -3921,13 +3921,14 @@ The @code{-no-user-config} option makes QEMU not load any of the user-provided
 config files on @var{sysconfdir}.
 ETEXI
 DEF("trace", HAS_ARG, QEMU_OPTION_trace,
-    "-trace [[enable=]<pattern>][,events=<file>][,file=<file>]\n"
+    "-trace [[enable=]<pattern>][,events=<file>][,file=<file>]"
+    "[,single_event_compact_trace_file]\n"
     "                specify tracing options\n",
     QEMU_ARCH_ALL)
 STEXI
 HXCOMM This line is not accurate, as some sub-options are backend-specific but
 HXCOMM HX does not support conditional compilation of text.
-@item -trace [[enable=]@var{pattern}][,events=@var{file}][,file=@var{file}]
+@item -trace [[enable=]@var{pattern}][,events=@var{file}][,file=@var{file}][,single_event_compact_trace_file]
 @findex -trace
 @include qemu-option-trace.texi
 ETEXI
@@ -4455,16 +4456,6 @@ e.g to launch a SEV guest
 @end example
 @end table
 
-ETEXI
-
-HXCOMM options by orenmn:
-DEF("single-event-compact-trace-file", 0, QEMU_OPTION_orenmn_single_event_compact_trace_file,
-    "-single-event-compact-trace-file   When specified, qemu assumes that only a single event is ever on, so it doesn’t write to the trace file the mappings, nor does it add a type field (i.e. mapping/event) to each record\n",
-    QEMU_ARCH_ALL)
-STEXI
-@item -single-event-compact-trace-file
-@findex -single-event-compact-trace-file
-When specified, qemu assumes that only a single event is ever on, so it doesn’t write to the trace file the mappings, nor does it add a type field (i.e. mapping/event) to each record.
 ETEXI
 
 HXCOMM This is the last statement. Insert new options before this line!

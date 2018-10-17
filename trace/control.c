@@ -39,6 +39,7 @@ static TraceEventGroup *event_groups;
 static size_t nevent_groups;
 static uint32_t next_id;
 static uint32_t next_vcpu_id;
+static bool orenmn_single_event_compact_trace_file = false;
 
 QemuOptsList qemu_trace_opts = {
     .name = "trace",
@@ -55,6 +56,10 @@ QemuOptsList qemu_trace_opts = {
         },{
             .name = "file",
             .type = QEMU_OPT_STRING,
+        },
+        {
+            .name = "single_event_compact_trace_file",
+            .type = QEMU_OPT_BOOL,
         },
         { /* end of list */ }
     },
@@ -319,6 +324,9 @@ char *trace_opt_parse(const char *optarg)
     }
     if (qemu_opt_get(opts, "enable")) {
         trace_enable_events(qemu_opt_get(opts, "enable"));
+    }
+    if (qemu_opt_get(opts, "single_event_compact_trace_file")) {
+        orenmn_single_event_compact_trace_file = true;
     }
     trace_init_events(qemu_opt_get(opts, "events"));
     trace_file = g_strdup(qemu_opt_get(opts, "file"));
