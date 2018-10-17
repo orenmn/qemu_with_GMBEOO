@@ -13,6 +13,7 @@
 
 void st_print_trace_file_status(FILE *stream, fprintf_function stream_printf);
 void orenmn_enable_tracing_single_event_optimization(void);
+void orenmn_get_compiled_analysis_tool_result(void);
 void st_set_trace_file_enabled(bool enable);
 void st_set_trace_file(const char *file);
 bool st_init(void);

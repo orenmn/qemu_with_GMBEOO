@@ -154,6 +154,16 @@ static void wait_for_trace_records_available(void)
     g_mutex_unlock(&trace_lock);
 }
 
+static uint64_t orenmn_num_of_mem_accesses = 0;
+static void compiled_analysis_tool(TraceRecord *trace_record) {
+    ++orenmn_num_of_mem_accesses;
+}
+
+void orenmn_get_compiled_analysis_tool_result(void)
+{
+    printf("compiled analysis tool result: === %lu ===\n", orenmn_num_of_mem_accesses);
+}
+
 static gpointer writeout_thread(gpointer opaque)
 {
     TraceRecord *recordptr;
@@ -165,21 +175,11 @@ static gpointer writeout_thread(gpointer opaque)
     int dropped_count;
     size_t unused __attribute__ ((unused));
     uint64_t type = TRACE_RECORD_TYPE_EVENT;
-    int i = 0;
-    size_t nitems = 0;
+    uint64_t num_of_mem_accesses = 0;
 
     for (;;) {
         wait_for_trace_records_available();
         
-        // orenmn: only write to the file once in every 1024 events.
-        if ((0 & 0x3ff) == 0) {
-            nitems = 1;
-        }
-        else {
-            nitems = 0;
-        }
-        ++i;
-
         if (g_atomic_int_get(&dropped_events)) {
             dropped.rec.event = DROPPED_EVENT_ID,
             dropped.rec.timestamp_ns = get_clock();
@@ -187,13 +187,14 @@ static gpointer writeout_thread(gpointer opaque)
             dropped.rec.pid = trace_pid;
             do {
                 dropped_count = g_atomic_int_get(&dropped_events);
+                ++num_of_mem_accesses;
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                         dropped_count, 0));
             dropped.rec.arguments[0] = dropped_count;
             if (!orenmn_single_event_optimization) {
-                unused = fwrite(&type, sizeof(type), nitems, trace_fp);
+                unused = fwrite(&type, sizeof(type), 1, trace_fp);
             }
-            unused = fwrite(&dropped.rec, dropped.rec.length, nitems, trace_fp);
+            unused = fwrite(&dropped.rec, dropped.rec.length, 1, trace_fp);
         }
 
         if (orenmn_single_event_optimization) {
@@ -201,8 +202,13 @@ static gpointer writeout_thread(gpointer opaque)
         }
         else {
             while (get_trace_record(idx, &recordptr)) {
-                unused = fwrite(&type, sizeof(type), nitems, trace_fp);
-                unused = fwrite(recordptr, recordptr->length, nitems, trace_fp);
+                if (true) {
+                    compiled_analysis_tool(recordptr);
+                }
+                else {
+                    unused = fwrite(&type, sizeof(type), 1, trace_fp);
+                    unused = fwrite(recordptr, recordptr->length, 1, trace_fp);
+                }
                 writeout_idx += recordptr->length;
                 free(recordptr); /* don't use g_free, can deadlock when traced */
                 idx = writeout_idx % TRACE_BUF_LEN;

@@ -348,6 +348,20 @@ no need to add a type (i.e. mapping/event) for each record, and writing
 to the trace file can be done in chunks (as all records are of the same
 size).
 ETEXI
+
+    {
+        .name       = "get_compiled_analysis_tool_result",
+        .args_type  = "",
+        .params     = "",
+        .help       = "For internal use.",
+        .cmd        = hmp_orenmn_get_compiled_analysis_tool_result,
+    },
+
+STEXI
+@item get_compiled_analysis_tool_result
+@findex get_compiled_analysis_tool_result
+For internal use. 
+ETEXI
 #endif
 
     {
