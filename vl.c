@@ -204,9 +204,6 @@ uint32_t xen_domid;
 enum xen_mode xen_mode = XEN_EMULATE;
 bool xen_domid_restrict;
 
-// orenmn's options globals
-bool orenmn_single_event_compact_trace_file = false;
-
 static int has_defaults = 1;
 static int default_serial = 1;
 static int default_parallel = 1;
@@ -3965,9 +3962,6 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_nodefconfig:
             case QEMU_OPTION_nouserconfig:
                 /* Nothing to be parsed here. Especially, do not error out below. */
-                break;
-            case QEMU_OPTION_orenmn_single_event_compact_trace_file:
-                orenmn_single_event_compact_trace_file = true;
                 break;
             default:
                 if (os_parse_cmd_args(popt->index, optarg)) {

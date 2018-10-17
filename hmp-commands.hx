@@ -331,6 +331,23 @@ STEXI
 @findex trace-file
 Open, close, or flush the trace file.  If no argument is given, the status of the trace file is displayed.
 ETEXI
+
+    {
+        .name       = "enable_tracing_single_event_optimization",
+        .args_type  = "",
+        .params     = "",
+        .help       = "Exploit the special case of a single event to optimize the simple trace.",
+        .cmd        = hmp_orenmn_enable_tracing_single_event_optimization,
+    },
+
+STEXI
+@item enable_single_event_optimization
+@findex enable_single_event_optimization
+After enabling, qemu assumes that only a single event is on, so there is
+no need to add a type (i.e. mapping/event) for each record, and writing
+to the trace file can be done in chunks (as all records are of the same
+size).
+ETEXI
 #endif
 
     {

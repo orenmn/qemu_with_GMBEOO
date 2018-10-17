@@ -3921,14 +3921,13 @@ The @code{-no-user-config} option makes QEMU not load any of the user-provided
 config files on @var{sysconfdir}.
 ETEXI
 DEF("trace", HAS_ARG, QEMU_OPTION_trace,
-    "-trace [[enable=]<pattern>][,events=<file>][,file=<file>]"
-    "[,single_event_compact_trace_file]\n"
+    "-trace [[enable=]<pattern>][,events=<file>][,file=<file>]\n"
     "                specify tracing options\n",
     QEMU_ARCH_ALL)
 STEXI
 HXCOMM This line is not accurate, as some sub-options are backend-specific but
 HXCOMM HX does not support conditional compilation of text.
-@item -trace [[enable=]@var{pattern}][,events=@var{file}][,file=@var{file}][,single_event_compact_trace_file]
+@item -trace [[enable=]@var{pattern}][,events=@var{file}][,file=@var{file}]
 @findex -trace
 @include qemu-option-trace.texi
 ETEXI
@@ -4457,6 +4456,7 @@ e.g to launch a SEV guest
 @end table
 
 ETEXI
+
 
 HXCOMM This is the last statement. Insert new options before this line!
 STEXI

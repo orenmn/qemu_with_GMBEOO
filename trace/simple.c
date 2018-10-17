@@ -55,7 +55,7 @@ static volatile gint dropped_events;
 static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
-static bool _orenmn_single_event_compact_trace_file;
+static bool orenmn_single_event_optimization = false;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
 #define TRACE_RECORD_TYPE_EVENT   1
@@ -190,16 +190,23 @@ static gpointer writeout_thread(gpointer opaque)
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                         dropped_count, 0));
             dropped.rec.arguments[0] = dropped_count;
-            unused = fwrite(&type, sizeof(type), nitems, trace_fp);
+            if (!orenmn_single_event_optimization) {
+                unused = fwrite(&type, sizeof(type), nitems, trace_fp);
+            }
             unused = fwrite(&dropped.rec, dropped.rec.length, nitems, trace_fp);
         }
 
-        while (get_trace_record(idx, &recordptr)) {
-            unused = fwrite(&type, sizeof(type), nitems, trace_fp);
-            unused = fwrite(recordptr, recordptr->length, nitems, trace_fp);
-            writeout_idx += recordptr->length;
-            free(recordptr); /* don't use g_free, can deadlock when traced */
-            idx = writeout_idx % TRACE_BUF_LEN;
+        if (orenmn_single_event_optimization) {
+            printf("cyber.\n");
+        }
+        else {
+            while (get_trace_record(idx, &recordptr)) {
+                unused = fwrite(&type, sizeof(type), nitems, trace_fp);
+                unused = fwrite(recordptr, recordptr->length, nitems, trace_fp);
+                writeout_idx += recordptr->length;
+                free(recordptr); /* don't use g_free, can deadlock when traced */
+                idx = writeout_idx % TRACE_BUF_LEN;
+            }
         }
 
         fflush(trace_fp);
@@ -337,13 +344,11 @@ void st_set_trace_file_enabled(bool enable)
             return;
         }
 
-        if (!_orenmn_single_event_compact_trace_file) {
-            if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
-                st_write_event_mapping() < 0) {
-                fclose(trace_fp);
-                trace_fp = NULL;
-                return;
-            }
+        if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
+            st_write_event_mapping() < 0) {
+            fclose(trace_fp);
+            trace_fp = NULL;
+            return;
         }
 
         /* Resume trace writeout */
@@ -375,6 +380,11 @@ void st_set_trace_file(const char *file)
     }
 
     st_set_trace_file_enabled(true);
+}
+
+void orenmn_enable_tracing_single_event_optimization(void)
+{
+    orenmn_single_event_optimization = true;
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
@@ -412,11 +422,10 @@ static GThread *trace_thread_create(GThreadFunc fn)
     return thread;
 }
 
-bool st_init(bool orenmn_single_event_compact_trace_file)
+bool st_init(void)
 {
     GThread *thread;
 
-    _orenmn_single_event_compact_trace_file = orenmn_single_event_compact_trace_file;
     trace_pid = getpid();
 
     thread = trace_thread_create(writeout_thread);
