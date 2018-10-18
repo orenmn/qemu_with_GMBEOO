@@ -44,7 +44,7 @@ static bool trace_available;
 static bool trace_writeout_enabled;
 
 enum {
-    TRACE_BUF_LEN = 4096 * 64,
+    TRACE_BUF_LEN = 4096 * 256,
     TRACE_BUF_FLUSH_THRESHOLD = TRACE_BUF_LEN / 4,
 };
 
@@ -171,7 +171,6 @@ void orenmn_get_compiled_analysis_tool_result(void)
            orenmn_num_of_mem_accesses);
     printf("orenmn_num_of_mem_accesses_to_our_buf (which is at %p): %d\n",
            orenmn_our_buf_addr, orenmn_num_of_mem_accesses_to_our_buf);
-    printf("dropped_events: %d\n", g_atomic_int_get(&dropped_events));
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -198,6 +197,7 @@ static gpointer writeout_thread(gpointer opaque)
                 dropped_count = g_atomic_int_get(&dropped_events);
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                         dropped_count, 0));
+            printf("dropped_events: %d\n", dropped_count);
             dropped.rec.arguments[0] = dropped_count;
             if (!orenmn_single_event_optimization) {
                 unused = fwrite(&type, sizeof(type), 1, trace_fp);
@@ -223,8 +223,8 @@ static gpointer writeout_thread(gpointer opaque)
                     orenmn_compiled_analysis_tool(recordptr);
                 }
                 else {
-                    unused = fwrite(&type, sizeof(type), 0, trace_fp);
-                    unused = fwrite(recordptr, recordptr->length, 0, trace_fp);
+                    unused = fwrite(&type, sizeof(type), 1, trace_fp);
+                    unused = fwrite(recordptr, recordptr->length, 1, trace_fp);
                 }
                 writeout_idx += recordptr->length;
                 free(recordptr); /* don't use g_free, can deadlock when traced */
