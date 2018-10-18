@@ -58,6 +58,7 @@ static char *trace_file_name;
 static bool orenmn_single_event_optimization = false;
 static int orenmn_num_of_mem_accesses_to_our_buf = 0;
 static int orenmn_num_of_mem_accesses = 0;
+static int orenmn_num_of_other_size_records = 0;
 static int * orenmn_our_buf_addr = 0;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
@@ -159,6 +160,12 @@ static void wait_for_trace_records_available(void)
 
 void orenmn_set_our_buf_address(int *buf_addr) {
     orenmn_our_buf_addr = buf_addr;
+    printf("num_of_mem_accesses at set_our_buf_address: %d\n",
+           orenmn_num_of_mem_accesses);
+    printf("num_of_other_size_records at set_our_buf_address: %d\n",
+           orenmn_num_of_other_size_records);
+    
+    orenmn_num_of_mem_accesses = 0;
 }
 
 static void orenmn_compiled_analysis_tool(TraceRecord *trace_record) {
@@ -169,6 +176,8 @@ void orenmn_get_compiled_analysis_tool_result(void)
 {
     printf("compiled analysis tool result: === %d ===\n",
            orenmn_num_of_mem_accesses);
+    printf("num_of_other_size_records: === %d ===\n",
+           orenmn_num_of_other_size_records);
     printf("orenmn_num_of_mem_accesses_to_our_buf (which is at %p): %d\n",
            orenmn_our_buf_addr, orenmn_num_of_mem_accesses_to_our_buf);
 }
@@ -197,23 +206,19 @@ static gpointer writeout_thread(gpointer opaque)
                 dropped_count = g_atomic_int_get(&dropped_events);
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                         dropped_count, 0));
-            if (orenmn_print_dropped_events)
+            if (orenmn_single_event_optimization)
             {
-                printf("\n\n----------------ATTENTION----------------:\n"
-                       "%d events were dropped.\n\n\n", dropped_count);
+                printf("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
+                       "%d events were dropped.\n", dropped_count);
             }
             else {
                 dropped.rec.arguments[0] = dropped_count;
                 unused = fwrite(&type, sizeof(type), 1, trace_fp);
                 unused = fwrite(&dropped.rec, dropped.rec.length, 1, trace_fp);
-                
             }
         }
 
         if (orenmn_single_event_optimization) {
-            printf("cyber.\n");
-        }
-        else {
             while (get_trace_record(idx, &recordptr)) {
                 uint64_t virt_addr = recordptr->arguments[1];
                 uint64_t our_buff_end_addr = (uint64_t)(orenmn_our_buf_addr + 20000);
@@ -225,12 +230,23 @@ static gpointer writeout_thread(gpointer opaque)
                 }
 
                 if (false) {
-                    orenmn_compiled_analysis_tool(recordptr);
                 }
                 else {
-                    unused = fwrite(&type, sizeof(type), 1, trace_fp);
+                    orenmn_compiled_analysis_tool(recordptr);
                     unused = fwrite(recordptr, recordptr->length, 1, trace_fp);
+                    if (recordptr->length != 0x30) {
+                        g_atomic_int_inc(&orenmn_num_of_other_size_records);
+                    }
                 }
+                writeout_idx += recordptr->length;
+                free(recordptr); /* don't use g_free, can deadlock when traced */
+                idx = writeout_idx % TRACE_BUF_LEN;
+            }
+        }
+        else {
+            while (get_trace_record(idx, &recordptr)) {
+                unused = fwrite(&type, sizeof(type), 1, trace_fp);
+                unused = fwrite(recordptr, recordptr->length, 1, trace_fp);
                 writeout_idx += recordptr->length;
                 free(recordptr); /* don't use g_free, can deadlock when traced */
                 idx = writeout_idx % TRACE_BUF_LEN;
@@ -416,7 +432,6 @@ void st_set_trace_file(const char *file)
 void orenmn_enable_tracing_single_event_optimization(void)
 {
     orenmn_single_event_optimization = true;
-    orenmn_print_dropped_events = true;
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
