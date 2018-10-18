@@ -362,6 +362,20 @@ STEXI
 @findex get_compiled_analysis_tool_result
 For internal use. 
 ETEXI
+
+    {
+        .name       = "set_our_buf_address",
+        .args_type  = "addr:l",
+        .params     = "addr",
+        .help       = "For internal use.",
+        .cmd        = hmp_orenmn_set_our_buf_address,
+    },
+
+STEXI
+@item set_our_buf_address @var{addr}
+@findex set_our_buf_address
+For internal use. 
+ETEXI
 #endif
 
     {

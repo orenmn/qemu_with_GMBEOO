@@ -1167,6 +1167,12 @@ static void hmp_orenmn_get_compiled_analysis_tool_result(Monitor *mon, const QDi
 {
     orenmn_get_compiled_analysis_tool_result();
 }
+
+static void hmp_orenmn_set_our_buf_address(Monitor *mon, const QDict *qdict)
+{
+    uint64_t buf_addr = qdict_get_int(qdict, "addr");
+    orenmn_set_our_buf_address((int *)buf_addr);
+}
 #endif
 
 static void hmp_info_help(Monitor *mon, const QDict *qdict)

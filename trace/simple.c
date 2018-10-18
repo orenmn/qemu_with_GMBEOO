@@ -56,6 +56,9 @@ static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
 static bool orenmn_single_event_optimization = false;
+static int orenmn_num_of_mem_accesses_to_our_buf = 0;
+static int orenmn_num_of_mem_accesses = 0;
+static int * orenmn_our_buf_addr = 0;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
 #define TRACE_RECORD_TYPE_EVENT   1
@@ -154,14 +157,21 @@ static void wait_for_trace_records_available(void)
     g_mutex_unlock(&trace_lock);
 }
 
-static uint64_t orenmn_num_of_mem_accesses = 0;
-static void compiled_analysis_tool(TraceRecord *trace_record) {
-    ++orenmn_num_of_mem_accesses;
+void orenmn_set_our_buf_address(int *buf_addr) {
+    orenmn_our_buf_addr = buf_addr;
+}
+
+static void orenmn_compiled_analysis_tool(TraceRecord *trace_record) {
+    g_atomic_int_inc(&orenmn_num_of_mem_accesses);
 }
 
 void orenmn_get_compiled_analysis_tool_result(void)
 {
-    printf("compiled analysis tool result: === %lu ===\n", orenmn_num_of_mem_accesses);
+    printf("compiled analysis tool result: === %d ===\n",
+           orenmn_num_of_mem_accesses);
+    printf("orenmn_num_of_mem_accesses_to_our_buf (which is at %p): %d\n",
+           orenmn_our_buf_addr, orenmn_num_of_mem_accesses_to_our_buf);
+    printf("dropped_events: %d\n", g_atomic_int_get(&dropped_events));
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -175,7 +185,6 @@ static gpointer writeout_thread(gpointer opaque)
     int dropped_count;
     size_t unused __attribute__ ((unused));
     uint64_t type = TRACE_RECORD_TYPE_EVENT;
-    uint64_t num_of_mem_accesses = 0;
 
     for (;;) {
         wait_for_trace_records_available();
@@ -187,7 +196,6 @@ static gpointer writeout_thread(gpointer opaque)
             dropped.rec.pid = trace_pid;
             do {
                 dropped_count = g_atomic_int_get(&dropped_events);
-                ++num_of_mem_accesses;
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                         dropped_count, 0));
             dropped.rec.arguments[0] = dropped_count;
@@ -202,8 +210,17 @@ static gpointer writeout_thread(gpointer opaque)
         }
         else {
             while (get_trace_record(idx, &recordptr)) {
-                if (true) {
-                    compiled_analysis_tool(recordptr);
+                uint64_t virt_addr = recordptr->arguments[1];
+                uint64_t our_buff_end_addr = (uint64_t)(orenmn_our_buf_addr + 20000);
+                if ((virt_addr >= (uint64_t)orenmn_our_buf_addr) &&
+                    (virt_addr < our_buff_end_addr))
+                {
+                    // printf("virt_addr: %lu\n", virt_addr);
+                    g_atomic_int_inc(&orenmn_num_of_mem_accesses_to_our_buf);
+                }
+
+                if (false) {
+                    orenmn_compiled_analysis_tool(recordptr);
                 }
                 else {
                     unused = fwrite(&type, sizeof(type), 1, trace_fp);
@@ -350,11 +367,14 @@ void st_set_trace_file_enabled(bool enable)
             return;
         }
 
-        if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
-            st_write_event_mapping() < 0) {
-            fclose(trace_fp);
-            trace_fp = NULL;
-            return;
+        // orenmn: We don't need that...
+        if (false) {
+            if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
+                st_write_event_mapping() < 0) {
+                fclose(trace_fp);
+                trace_fp = NULL;
+                return;
+            }
         }
 
         /* Resume trace writeout */
