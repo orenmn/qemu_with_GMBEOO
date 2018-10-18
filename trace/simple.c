@@ -223,8 +223,8 @@ static gpointer writeout_thread(gpointer opaque)
                     orenmn_compiled_analysis_tool(recordptr);
                 }
                 else {
-                    unused = fwrite(&type, sizeof(type), 1, trace_fp);
-                    unused = fwrite(recordptr, recordptr->length, 1, trace_fp);
+                    unused = fwrite(&type, sizeof(type), 0, trace_fp);
+                    unused = fwrite(recordptr, recordptr->length, 0, trace_fp);
                 }
                 writeout_idx += recordptr->length;
                 free(recordptr); /* don't use g_free, can deadlock when traced */
