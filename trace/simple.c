@@ -68,9 +68,9 @@ static int * orenmn_our_buf_addr = 0;
 /* * Trace buffer entry */
 typedef struct {
     uint64_t event; /* event ID value */
-    uint64_t timestamp_ns;
+    // uint64_t timestamp_ns;
     uint32_t length;   /*    in bytes */
-    uint32_t pid;
+    // uint32_t pid;
     uint64_t arguments[];
 } TraceRecord;
 
@@ -195,9 +195,9 @@ static gpointer writeout_thread(gpointer opaque)
 
         if (g_atomic_int_get(&dropped_events)) {
             dropped.rec.event = DROPPED_EVENT_ID,
-            dropped.rec.timestamp_ns = get_clock();
-            dropped.rec.length = sizeof(TraceRecord) + sizeof(uint64_t),
-            dropped.rec.pid = trace_pid;
+            // dropped.rec.timestamp_ns = get_clock();
+            dropped.rec.length = sizeof(TraceRecord) + sizeof(uint64_t);
+            // dropped.rec.pid = trace_pid;
             do {
                 dropped_count = g_atomic_int_get(&dropped_events);
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
@@ -236,7 +236,7 @@ static gpointer writeout_thread(gpointer opaque)
                     g_atomic_int_inc(&orenmn_num_of_mem_accesses_to_our_buf);
                 }
 
-                if (true) {
+                if (false) {
                     orenmn_compiled_analysis_tool(recordptr);
                 }
                 else {
@@ -280,7 +280,7 @@ int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
     unsigned int idx, rec_off, old_idx, new_idx;
     uint32_t rec_len = sizeof(TraceRecord) + datasize;
     uint64_t event_u64 = event;
-    uint64_t timestamp_ns = get_clock();
+    // uint64_t timestamp_ns = get_clock();
 
     do {
         old_idx = g_atomic_int_get(&trace_idx);
@@ -298,9 +298,9 @@ int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
 
     rec_off = idx;
     rec_off = write_to_buffer(rec_off, &event_u64, sizeof(event_u64));
-    rec_off = write_to_buffer(rec_off, &timestamp_ns, sizeof(timestamp_ns));
+    // rec_off = write_to_buffer(rec_off, &timestamp_ns, sizeof(timestamp_ns));
     rec_off = write_to_buffer(rec_off, &rec_len, sizeof(rec_len));
-    rec_off = write_to_buffer(rec_off, &trace_pid, sizeof(trace_pid));
+    // rec_off = write_to_buffer(rec_off, &trace_pid, sizeof(trace_pid));
 
     rec->tbuf_idx = idx;
     rec->rec_off  = (idx + sizeof(TraceRecord)) % TRACE_BUF_LEN;
