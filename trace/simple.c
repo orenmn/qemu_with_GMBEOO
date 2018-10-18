@@ -236,7 +236,7 @@ static gpointer writeout_thread(gpointer opaque)
                     g_atomic_int_inc(&orenmn_num_of_mem_accesses_to_our_buf);
                 }
 
-                if (false) {
+                if (true) {
                     orenmn_compiled_analysis_tool(recordptr);
                 }
                 else {
