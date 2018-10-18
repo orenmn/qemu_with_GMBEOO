@@ -56,9 +56,10 @@ static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
 static bool orenmn_single_event_optimization = false;
+static int orenmn_trace_record_size = -1;
 static int orenmn_num_of_mem_accesses_to_our_buf = 0;
 static int orenmn_num_of_mem_accesses = 0;
-static int orenmn_num_of_other_size_records = 0;
+static int orenmn_total_num_of_dropped_events = 0;
 static int * orenmn_our_buf_addr = 0;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
@@ -160,12 +161,6 @@ static void wait_for_trace_records_available(void)
 
 void orenmn_set_our_buf_address(int *buf_addr) {
     orenmn_our_buf_addr = buf_addr;
-    printf("num_of_mem_accesses at set_our_buf_address: %d\n",
-           orenmn_num_of_mem_accesses);
-    printf("num_of_other_size_records at set_our_buf_address: %d\n",
-           orenmn_num_of_other_size_records);
-    
-    orenmn_num_of_mem_accesses = 0;
 }
 
 static void orenmn_compiled_analysis_tool(TraceRecord *trace_record) {
@@ -176,10 +171,10 @@ void orenmn_get_compiled_analysis_tool_result(void)
 {
     printf("compiled analysis tool result: === %d ===\n",
            orenmn_num_of_mem_accesses);
-    printf("num_of_other_size_records: === %d ===\n",
-           orenmn_num_of_other_size_records);
     printf("orenmn_num_of_mem_accesses_to_our_buf (which is at %p): %d\n",
            orenmn_our_buf_addr, orenmn_num_of_mem_accesses_to_our_buf);
+    printf("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
+           "%d events were dropped.\n", orenmn_total_num_of_dropped_events);
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -191,12 +186,13 @@ static gpointer writeout_thread(gpointer opaque)
     } dropped;
     unsigned int idx = 0;
     int dropped_count;
+    int orenmn_total_dropped_count;
     size_t unused __attribute__ ((unused));
     uint64_t type = TRACE_RECORD_TYPE_EVENT;
 
     for (;;) {
         wait_for_trace_records_available();
-        
+
         if (g_atomic_int_get(&dropped_events)) {
             dropped.rec.event = DROPPED_EVENT_ID,
             dropped.rec.timestamp_ns = get_clock();
@@ -206,12 +202,15 @@ static gpointer writeout_thread(gpointer opaque)
                 dropped_count = g_atomic_int_get(&dropped_events);
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                         dropped_count, 0));
-            if (orenmn_single_event_optimization)
-            {
-                printf("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
-                       "%d events were dropped.\n", dropped_count);
-            }
-            else {
+            do {
+                orenmn_total_dropped_count = 
+                    g_atomic_int_get(&orenmn_total_num_of_dropped_events);
+            } while (!g_atomic_int_compare_and_exchange(
+                &orenmn_total_num_of_dropped_events,
+                orenmn_total_dropped_count,
+                orenmn_total_dropped_count + dropped_count));
+            
+            if (!orenmn_single_event_optimization) {
                 dropped.rec.arguments[0] = dropped_count;
                 unused = fwrite(&type, sizeof(type), 1, trace_fp);
                 unused = fwrite(&dropped.rec, dropped.rec.length, 1, trace_fp);
@@ -220,6 +219,14 @@ static gpointer writeout_thread(gpointer opaque)
 
         if (orenmn_single_event_optimization) {
             while (get_trace_record(idx, &recordptr)) {
+                int record_size = recordptr->length;
+                if (orenmn_trace_record_size == -1) {
+                    orenmn_trace_record_size = record_size;
+                }
+                /* single_event_optimization is on, so events should be of
+                   the same size. */
+                assert(orenmn_trace_record_size == record_size);
+
                 uint64_t virt_addr = recordptr->arguments[1];
                 uint64_t our_buff_end_addr = (uint64_t)(orenmn_our_buf_addr + 20000);
                 if ((virt_addr >= (uint64_t)orenmn_our_buf_addr) &&
@@ -230,15 +237,12 @@ static gpointer writeout_thread(gpointer opaque)
                 }
 
                 if (false) {
+                    orenmn_compiled_analysis_tool(recordptr);
                 }
                 else {
-                    orenmn_compiled_analysis_tool(recordptr);
-                    unused = fwrite(recordptr, recordptr->length, 1, trace_fp);
-                    if (recordptr->length != 0x30) {
-                        g_atomic_int_inc(&orenmn_num_of_other_size_records);
-                    }
+                    unused = fwrite(recordptr, record_size, 1, trace_fp);
                 }
-                writeout_idx += recordptr->length;
+                writeout_idx += record_size;
                 free(recordptr); /* don't use g_free, can deadlock when traced */
                 idx = writeout_idx % TRACE_BUF_LEN;
             }
