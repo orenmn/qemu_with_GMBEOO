@@ -44,7 +44,7 @@ static bool trace_available;
 static bool trace_writeout_enabled;
 
 enum {
-    TRACE_BUF_LEN = 4096 * 256,
+    TRACE_BUF_LEN = 4096 * 64,
     TRACE_BUF_FLUSH_THRESHOLD = TRACE_BUF_LEN / 4,
 };
 
@@ -197,12 +197,17 @@ static gpointer writeout_thread(gpointer opaque)
                 dropped_count = g_atomic_int_get(&dropped_events);
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                         dropped_count, 0));
-            printf("dropped_events: %d\n", dropped_count);
-            dropped.rec.arguments[0] = dropped_count;
-            if (!orenmn_single_event_optimization) {
-                unused = fwrite(&type, sizeof(type), 1, trace_fp);
+            if (orenmn_print_dropped_events)
+            {
+                printf("\n\n----------------ATTENTION----------------:\n"
+                       "%d events were dropped.\n\n\n", dropped_count);
             }
-            unused = fwrite(&dropped.rec, dropped.rec.length, 1, trace_fp);
+            else {
+                dropped.rec.arguments[0] = dropped_count;
+                unused = fwrite(&type, sizeof(type), 1, trace_fp);
+                unused = fwrite(&dropped.rec, dropped.rec.length, 1, trace_fp);
+                
+            }
         }
 
         if (orenmn_single_event_optimization) {
@@ -411,6 +416,7 @@ void st_set_trace_file(const char *file)
 void orenmn_enable_tracing_single_event_optimization(void)
 {
     orenmn_single_event_optimization = true;
+    orenmn_print_dropped_events = true;
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
