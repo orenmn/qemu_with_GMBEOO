@@ -252,26 +252,52 @@ static gpointer writeout_thread(gpointer opaque)
                 uint8_t bytes[sizeof(TraceRecord) + sizeof(uint64_t) * 32];
             } orenmn_local_record_buf;
             uint32_t orenmn_record_size = orenmn_trace_record_size;
-            while (orenmn_get_trace_record(idx, &orenmn_local_record_buf.rec,
-                                           orenmn_record_size)) {
-                uint64_t virt_addr = orenmn_local_record_buf.rec.arguments[0];
-                uint64_t our_buff_end_addr = (uint64_t)(orenmn_our_buf_addr + 20000);
-                if ((virt_addr >= (uint64_t)orenmn_our_buf_addr) &&
-                    (virt_addr < our_buff_end_addr))
-                {
-                    // printf("virt_addr: %lu\n", virt_addr);
-                    g_atomic_int_inc(&orenmn_num_of_mem_accesses_to_our_buf);
-                }
+            
+            if (true) {
+                while (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx) >
+                       TRACE_BUF_FLUSH_THRESHOLD) {
+                    
+                    /* Find the first invalid trace record. We would write all
+                       of the records until that one. */ 
+                    unsigned int orenmn_temp_idx = idx;
+                    while (orenmn_temp_idx < TRACE_BUF_LEN && 
+                           (((TraceRecord *)&trace_buf[orenmn_temp_idx])->event &
+                            TRACE_RECORD_VALID)) {
+                        orenmn_temp_idx += orenmn_record_size;
+                    }
+                    unsigned int orenmn_num_of_bytes_to_write = orenmn_temp_idx - idx;
+                    unused = fwrite(&trace_buf[idx],
+                                    orenmn_num_of_bytes_to_write, 1, trace_fp);
 
-                if (false) {
+                    // Instead of calling `clear_buffer_range`
+                    memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
+                    
+                    writeout_idx += orenmn_num_of_bytes_to_write;
+                    idx = writeout_idx % TRACE_BUF_LEN;
                 }
-                else {
-                    orenmn_compiled_analysis_tool(&orenmn_local_record_buf.rec);
-                    unused = fwrite(&orenmn_local_record_buf.rec,
-                                    orenmn_record_size, 1, trace_fp);
+            }
+            else {
+                while (orenmn_get_trace_record(idx, &orenmn_local_record_buf.rec,
+                                               orenmn_record_size)) {
+                    // uint64_t virt_addr = orenmn_local_record_buf.rec.arguments[0];
+                    // uint64_t our_buff_end_addr = (uint64_t)(orenmn_our_buf_addr + 20000);
+                    // if ((virt_addr >= (uint64_t)orenmn_our_buf_addr) &&
+                    //     (virt_addr < our_buff_end_addr))
+                    // {
+                    //     // printf("virt_addr: %lu\n", virt_addr);
+                    //     g_atomic_int_inc(&orenmn_num_of_mem_accesses_to_our_buf);
+                    // }
+
+                    if (false) {
+                        orenmn_compiled_analysis_tool(&orenmn_local_record_buf.rec);
+                    }
+                    else {
+                        unused = fwrite(&orenmn_local_record_buf.rec,
+                                        orenmn_record_size, 1, trace_fp);
+                    }
+                    writeout_idx += orenmn_record_size;
+                    idx = writeout_idx % TRACE_BUF_LEN;
                 }
-                writeout_idx += orenmn_record_size;
-                idx = writeout_idx % TRACE_BUF_LEN;
             }
         }
         else {
