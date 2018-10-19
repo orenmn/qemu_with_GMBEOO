@@ -170,6 +170,7 @@ void orenmn_set_our_buf_address(int *buf_addr) {
 
 void orenmn_print_trace_results(void)
 {
+
     int num_of_dropped_events = g_atomic_int_get(&dropped_events);
     if (num_of_dropped_events != 0) {
         printf("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
@@ -453,6 +454,8 @@ void orenmn_enable_tracing_single_event_optimization(int64_t num_of_arguments_of
     orenmn_single_event_optimization = true;
     orenmn_trace_record_size = sizeof(OrenmnOptimizedTraceRecord) + 
                                num_of_arguments_of_event * sizeof(uint64_t);
+    printf("single_event_optimization is on.\n"
+           "trace record size: %u\n", orenmn_trace_record_size);
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
