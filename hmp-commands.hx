@@ -334,14 +334,14 @@ ETEXI
 
     {
         .name       = "enable_tracing_single_event_optimization",
-        .args_type  = "",
-        .params     = "",
+        .args_type  = "num_of_arguments_of_event:i",
+        .params     = "num_of_arguments_of_event",
         .help       = "Exploit the special case of a single event to optimize the simple trace.",
         .cmd        = hmp_orenmn_enable_tracing_single_event_optimization,
     },
 
 STEXI
-@item enable_single_event_optimization
+@item enable_single_event_optimization @var{num_of_arguments_of_event}
 @findex enable_single_event_optimization
 After enabling, qemu assumes that only a single event is on, so there is
 no need to add a type (i.e. mapping/event) for each record, and writing

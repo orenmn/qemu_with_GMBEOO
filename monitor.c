@@ -1160,7 +1160,9 @@ static void hmp_trace_file(Monitor *mon, const QDict *qdict)
 
 static void hmp_orenmn_enable_tracing_single_event_optimization(Monitor *mon, const QDict *qdict)
 {
-    orenmn_enable_tracing_single_event_optimization();
+    int64_t num_of_arguments_of_event = qdict_get_int(qdict,
+                                                      "num_of_arguments_of_event");
+    orenmn_enable_tracing_single_event_optimization(num_of_arguments_of_event);
 }
 
 static void hmp_orenmn_get_compiled_analysis_tool_result(Monitor *mon, const QDict *qdict)

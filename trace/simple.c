@@ -56,7 +56,7 @@ static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
 static bool orenmn_single_event_optimization = false;
-static int orenmn_trace_record_size = -1;
+static uint32_t orenmn_trace_record_size = 0;
 static int orenmn_num_of_mem_accesses_to_our_buf = 0;
 static int orenmn_num_of_mem_accesses = 0;
 static int orenmn_total_num_of_dropped_events = 0;
@@ -130,6 +130,35 @@ static bool get_trace_record(unsigned int idx, TraceRecord **recordptr)
     return true;
 }
 
+static bool orenmn_get_trace_record(unsigned int idx, TraceRecord *record_buf,
+                                    uint32_t record_size)
+{
+    uint64_t event_flag = 0;
+    /* read the event flag to see if its a valid record */
+    read_from_buffer(idx, record_buf, sizeof(event_flag));
+
+    if (!(record_buf->event & TRACE_RECORD_VALID)) {
+        return false;
+    }
+
+    smp_rmb(); /* read memory barrier before accessing record */
+    /* read the record header to know record length */
+    read_from_buffer(idx, record_buf, record_size);
+    
+    /* orenmn: I don't think we should care about the valid bit. The one that
+     * parses the trace records should know about it.
+     */
+    // smp_rmb(); /* memory barrier before clearing valid flag */
+    // record_buf->event &= ~TRACE_RECORD_VALID;
+
+    /* clear the trace buffer range for consumed record otherwise any byte
+     * with its MSB set may be considered as a valid event id when the writer
+     * thread crosses this range of buffer again.
+     */
+    clear_buffer_range(idx, record_size);
+    return true;
+}
+
 /**
  * Kick writeout thread
  *
@@ -174,7 +203,7 @@ void orenmn_get_compiled_analysis_tool_result(void)
     printf("orenmn_num_of_mem_accesses_to_our_buf (which is at %p): %d\n",
            orenmn_our_buf_addr, orenmn_num_of_mem_accesses_to_our_buf);
     printf("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
-           "%d events were dropped.\n", orenmn_total_num_of_dropped_events);
+           "%d events were dropped.\n\n", orenmn_total_num_of_dropped_events);
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -186,7 +215,6 @@ static gpointer writeout_thread(gpointer opaque)
     } dropped;
     unsigned int idx = 0;
     int dropped_count;
-    int orenmn_total_dropped_count;
     size_t unused __attribute__ ((unused));
     uint64_t type = TRACE_RECORD_TYPE_EVENT;
 
@@ -194,6 +222,7 @@ static gpointer writeout_thread(gpointer opaque)
         wait_for_trace_records_available();
 
         if (g_atomic_int_get(&dropped_events)) {
+            int orenmn_temp_total_dropped_count;
             dropped.rec.event = DROPPED_EVENT_ID,
             // dropped.rec.timestamp_ns = get_clock();
             dropped.rec.length = sizeof(TraceRecord) + sizeof(uint64_t);
@@ -203,12 +232,12 @@ static gpointer writeout_thread(gpointer opaque)
             } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                         dropped_count, 0));
             do {
-                orenmn_total_dropped_count = 
+                orenmn_temp_total_dropped_count = 
                     g_atomic_int_get(&orenmn_total_num_of_dropped_events);
             } while (!g_atomic_int_compare_and_exchange(
                 &orenmn_total_num_of_dropped_events,
-                orenmn_total_dropped_count,
-                orenmn_total_dropped_count + dropped_count));
+                orenmn_temp_total_dropped_count,
+                orenmn_temp_total_dropped_count + dropped_count));
             
             if (!orenmn_single_event_optimization) {
                 dropped.rec.arguments[0] = dropped_count;
@@ -218,16 +247,14 @@ static gpointer writeout_thread(gpointer opaque)
         }
 
         if (orenmn_single_event_optimization) {
-            while (get_trace_record(idx, &recordptr)) {
-                int record_size = recordptr->length;
-                if (orenmn_trace_record_size == -1) {
-                    orenmn_trace_record_size = record_size;
-                }
-                /* single_event_optimization is on, so events should be of
-                   the same size. */
-                assert(orenmn_trace_record_size == record_size);
-
-                uint64_t virt_addr = recordptr->arguments[1];
+            union {
+                TraceRecord rec;
+                uint8_t bytes[sizeof(TraceRecord) + sizeof(uint64_t) * 32];
+            } orenmn_local_record_buf;
+            uint32_t orenmn_record_size = orenmn_trace_record_size;
+            while (orenmn_get_trace_record(idx, &orenmn_local_record_buf.rec,
+                                           orenmn_record_size)) {
+                uint64_t virt_addr = orenmn_local_record_buf.rec.arguments[0];
                 uint64_t our_buff_end_addr = (uint64_t)(orenmn_our_buf_addr + 20000);
                 if ((virt_addr >= (uint64_t)orenmn_our_buf_addr) &&
                     (virt_addr < our_buff_end_addr))
@@ -237,13 +264,13 @@ static gpointer writeout_thread(gpointer opaque)
                 }
 
                 if (false) {
-                    orenmn_compiled_analysis_tool(recordptr);
                 }
                 else {
-                    unused = fwrite(recordptr, record_size, 1, trace_fp);
+                    orenmn_compiled_analysis_tool(&orenmn_local_record_buf.rec);
+                    unused = fwrite(&orenmn_local_record_buf.rec,
+                                    orenmn_record_size, 1, trace_fp);
                 }
-                writeout_idx += record_size;
-                free(recordptr); /* don't use g_free, can deadlock when traced */
+                writeout_idx += orenmn_record_size;
                 idx = writeout_idx % TRACE_BUF_LEN;
             }
         }
@@ -433,9 +460,11 @@ void st_set_trace_file(const char *file)
     st_set_trace_file_enabled(true);
 }
 
-void orenmn_enable_tracing_single_event_optimization(void)
+void orenmn_enable_tracing_single_event_optimization(int64_t num_of_arguments_of_event)
 {
     orenmn_single_event_optimization = true;
+    orenmn_trace_record_size = sizeof(TraceRecord) + 
+                               num_of_arguments_of_event * sizeof(uint64_t);
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
