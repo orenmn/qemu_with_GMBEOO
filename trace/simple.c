@@ -57,9 +57,6 @@ static FILE *trace_fp;
 static char *trace_file_name;
 static bool orenmn_single_event_optimization = false;
 static uint32_t orenmn_trace_record_size = 0;
-static int orenmn_num_of_mem_accesses_to_our_buf = 0;
-static int orenmn_num_of_mem_accesses = 0;
-static int orenmn_total_num_of_dropped_events = 0;
 static int * orenmn_our_buf_addr = 0;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
@@ -73,6 +70,14 @@ typedef struct {
     // uint32_t pid;
     uint64_t arguments[];
 } TraceRecord;
+
+/* * orenmn: Trace buffer entry in case of single_event_optimization */
+typedef struct {
+    uint64_t event; /* event ID value */
+    // uint64_t timestamp_ns;
+    // uint32_t pid;
+    uint64_t arguments[];
+} OrenmnOptimizedTraceRecord;
 
 typedef struct {
     uint64_t header_event_id; /* HEADER_EVENT_ID */
@@ -130,35 +135,6 @@ static bool get_trace_record(unsigned int idx, TraceRecord **recordptr)
     return true;
 }
 
-static bool orenmn_get_trace_record(unsigned int idx, TraceRecord *record_buf,
-                                    uint32_t record_size)
-{
-    uint64_t event_flag = 0;
-    /* read the event flag to see if its a valid record */
-    read_from_buffer(idx, record_buf, sizeof(event_flag));
-
-    if (!(record_buf->event & TRACE_RECORD_VALID)) {
-        return false;
-    }
-
-    smp_rmb(); /* read memory barrier before accessing record */
-    /* read the record header to know record length */
-    read_from_buffer(idx, record_buf, record_size);
-    
-    /* orenmn: I don't think we should care about the valid bit. The one that
-     * parses the trace records should know about it.
-     */
-    // smp_rmb(); /* memory barrier before clearing valid flag */
-    // record_buf->event &= ~TRACE_RECORD_VALID;
-
-    /* clear the trace buffer range for consumed record otherwise any byte
-     * with its MSB set may be considered as a valid event id when the writer
-     * thread crosses this range of buffer again.
-     */
-    clear_buffer_range(idx, record_size);
-    return true;
-}
-
 /**
  * Kick writeout thread
  *
@@ -192,18 +168,13 @@ void orenmn_set_our_buf_address(int *buf_addr) {
     orenmn_our_buf_addr = buf_addr;
 }
 
-static void orenmn_compiled_analysis_tool(TraceRecord *trace_record) {
-    g_atomic_int_inc(&orenmn_num_of_mem_accesses);
-}
-
-void orenmn_get_compiled_analysis_tool_result(void)
+void orenmn_print_trace_results(void)
 {
-    printf("compiled analysis tool result: === %d ===\n",
-           orenmn_num_of_mem_accesses);
-    printf("orenmn_num_of_mem_accesses_to_our_buf (which is at %p): %d\n",
-           orenmn_our_buf_addr, orenmn_num_of_mem_accesses_to_our_buf);
-    printf("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
-           "%d events were dropped.\n\n", orenmn_total_num_of_dropped_events);
+    int num_of_dropped_events = g_atomic_int_get(&dropped_events);
+    if (num_of_dropped_events != 0) {
+        printf("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
+               "%d events were dropped.\n\n", num_of_dropped_events);
+    }
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -221,86 +192,54 @@ static gpointer writeout_thread(gpointer opaque)
     for (;;) {
         wait_for_trace_records_available();
 
-        if (g_atomic_int_get(&dropped_events)) {
-            int orenmn_temp_total_dropped_count;
-            dropped.rec.event = DROPPED_EVENT_ID,
-            // dropped.rec.timestamp_ns = get_clock();
-            dropped.rec.length = sizeof(TraceRecord) + sizeof(uint64_t);
-            // dropped.rec.pid = trace_pid;
-            do {
-                dropped_count = g_atomic_int_get(&dropped_events);
-            } while (!g_atomic_int_compare_and_exchange(&dropped_events,
-                                                        dropped_count, 0));
-            do {
-                orenmn_temp_total_dropped_count = 
-                    g_atomic_int_get(&orenmn_total_num_of_dropped_events);
-            } while (!g_atomic_int_compare_and_exchange(
-                &orenmn_total_num_of_dropped_events,
-                orenmn_temp_total_dropped_count,
-                orenmn_temp_total_dropped_count + dropped_count));
+        if (orenmn_single_event_optimization) {
+            /* Just let dropped_events count the number dropped events. */
+
+            uint32_t orenmn_record_size = orenmn_trace_record_size;
             
-            if (!orenmn_single_event_optimization) {
+            /* We can't call fwrite once for both the end and the beginning of
+               trace_buf, so we add this while loop, to prevent a case in which
+               TRACE_BUF_FLUSH_THRESHOLD was reached, but there is only a small
+               number of trace records at the end of trace_buf, and many at its
+               beginning. (recall that trace_buf is a cyclic buffer.) */
+            while (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx) >
+                   TRACE_BUF_FLUSH_THRESHOLD) {
+                /* Find the first invalid trace record. We would write all
+                   of the records until that one. */ 
+                unsigned int temp_idx = idx;
+                while (temp_idx < TRACE_BUF_LEN && 
+                       (((OrenmnOptimizedTraceRecord *)&trace_buf[temp_idx])->event &
+                        TRACE_RECORD_VALID)) {
+                    temp_idx += orenmn_record_size;
+                }
+                unsigned int orenmn_num_of_bytes_to_write = temp_idx - idx;
+                unused = fwrite(&trace_buf[idx],
+                                orenmn_num_of_bytes_to_write, 1, trace_fp);
+
+                // Instead of calling `clear_buffer_range`
+                memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
+                
+                writeout_idx += orenmn_num_of_bytes_to_write;
+                idx = writeout_idx % TRACE_BUF_LEN;
+            }
+        }
+        else {
+            assert(!orenmn_single_event_optimization);
+
+            if (g_atomic_int_get(&dropped_events)) {
+                dropped.rec.event = DROPPED_EVENT_ID,
+                // dropped.rec.timestamp_ns = get_clock();
+                dropped.rec.length = sizeof(TraceRecord) + sizeof(uint64_t);
+                // dropped.rec.pid = trace_pid;
+                do {
+                    dropped_count = g_atomic_int_get(&dropped_events);
+                } while (!g_atomic_int_compare_and_exchange(&dropped_events,
+                                                            dropped_count, 0));
                 dropped.rec.arguments[0] = dropped_count;
                 unused = fwrite(&type, sizeof(type), 1, trace_fp);
                 unused = fwrite(&dropped.rec, dropped.rec.length, 1, trace_fp);
             }
-        }
 
-        if (orenmn_single_event_optimization) {
-            union {
-                TraceRecord rec;
-                uint8_t bytes[sizeof(TraceRecord) + sizeof(uint64_t) * 32];
-            } orenmn_local_record_buf;
-            uint32_t orenmn_record_size = orenmn_trace_record_size;
-            
-            if (true) {
-                while (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx) >
-                       TRACE_BUF_FLUSH_THRESHOLD) {
-                    
-                    /* Find the first invalid trace record. We would write all
-                       of the records until that one. */ 
-                    unsigned int orenmn_temp_idx = idx;
-                    while (orenmn_temp_idx < TRACE_BUF_LEN && 
-                           (((TraceRecord *)&trace_buf[orenmn_temp_idx])->event &
-                            TRACE_RECORD_VALID)) {
-                        orenmn_temp_idx += orenmn_record_size;
-                    }
-                    unsigned int orenmn_num_of_bytes_to_write = orenmn_temp_idx - idx;
-                    unused = fwrite(&trace_buf[idx],
-                                    orenmn_num_of_bytes_to_write, 1, trace_fp);
-
-                    // Instead of calling `clear_buffer_range`
-                    memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
-                    
-                    writeout_idx += orenmn_num_of_bytes_to_write;
-                    idx = writeout_idx % TRACE_BUF_LEN;
-                }
-            }
-            else {
-                while (orenmn_get_trace_record(idx, &orenmn_local_record_buf.rec,
-                                               orenmn_record_size)) {
-                    // uint64_t virt_addr = orenmn_local_record_buf.rec.arguments[0];
-                    // uint64_t our_buff_end_addr = (uint64_t)(orenmn_our_buf_addr + 20000);
-                    // if ((virt_addr >= (uint64_t)orenmn_our_buf_addr) &&
-                    //     (virt_addr < our_buff_end_addr))
-                    // {
-                    //     // printf("virt_addr: %lu\n", virt_addr);
-                    //     g_atomic_int_inc(&orenmn_num_of_mem_accesses_to_our_buf);
-                    // }
-
-                    if (false) {
-                        orenmn_compiled_analysis_tool(&orenmn_local_record_buf.rec);
-                    }
-                    else {
-                        unused = fwrite(&orenmn_local_record_buf.rec,
-                                        orenmn_record_size, 1, trace_fp);
-                    }
-                    writeout_idx += orenmn_record_size;
-                    idx = writeout_idx % TRACE_BUF_LEN;
-                }
-            }
-        }
-        else {
             while (get_trace_record(idx, &recordptr)) {
                 unused = fwrite(&type, sizeof(type), 1, trace_fp);
                 unused = fwrite(recordptr, recordptr->length, 1, trace_fp);
@@ -331,7 +270,14 @@ void trace_record_write_str(TraceBufferRecord *rec, const char *s, uint32_t slen
 int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
 {
     unsigned int idx, rec_off, old_idx, new_idx;
-    uint32_t rec_len = sizeof(TraceRecord) + datasize;
+    uint32_t rec_len;
+    if (orenmn_single_event_optimization) {
+        rec_len = orenmn_trace_record_size;
+        assert(rec_len == sizeof(OrenmnOptimizedTraceRecord) + datasize);
+    } 
+    else {
+        rec_len = sizeof(TraceRecord) + datasize;
+    }
     uint64_t event_u64 = event;
     // uint64_t timestamp_ns = get_clock();
 
@@ -352,11 +298,18 @@ int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
     rec_off = idx;
     rec_off = write_to_buffer(rec_off, &event_u64, sizeof(event_u64));
     // rec_off = write_to_buffer(rec_off, &timestamp_ns, sizeof(timestamp_ns));
-    rec_off = write_to_buffer(rec_off, &rec_len, sizeof(rec_len));
+    if (!orenmn_single_event_optimization) {
+        rec_off = write_to_buffer(rec_off, &rec_len, sizeof(rec_len));
+    }
     // rec_off = write_to_buffer(rec_off, &trace_pid, sizeof(trace_pid));
 
     rec->tbuf_idx = idx;
-    rec->rec_off  = (idx + sizeof(TraceRecord)) % TRACE_BUF_LEN;
+    if (orenmn_single_event_optimization) {
+        rec->rec_off  = (idx + sizeof(OrenmnOptimizedTraceRecord)) % TRACE_BUF_LEN;
+    } 
+    else {
+        rec->rec_off  = (idx + sizeof(TraceRecord)) % TRACE_BUF_LEN;
+    }
     return 0;
 }
 
@@ -387,11 +340,20 @@ static unsigned int write_to_buffer(unsigned int idx, void *dataptr, size_t size
 
 void trace_record_finish(TraceBufferRecord *rec)
 {
-    TraceRecord record;
-    read_from_buffer(rec->tbuf_idx, &record, sizeof(TraceRecord));
-    smp_wmb(); /* write barrier before marking as valid */
-    record.event |= TRACE_RECORD_VALID;
-    write_to_buffer(rec->tbuf_idx, &record, sizeof(TraceRecord));
+    if (orenmn_single_event_optimization) {
+        OrenmnOptimizedTraceRecord record;
+        read_from_buffer(rec->tbuf_idx, &record, sizeof(OrenmnOptimizedTraceRecord));
+        smp_wmb(); /* write barrier before marking as valid */
+        record.event |= TRACE_RECORD_VALID;
+        write_to_buffer(rec->tbuf_idx, &record, sizeof(OrenmnOptimizedTraceRecord));
+    }
+    else {
+        TraceRecord record;
+        read_from_buffer(rec->tbuf_idx, &record, sizeof(TraceRecord));
+        smp_wmb(); /* write barrier before marking as valid */
+        record.event |= TRACE_RECORD_VALID;
+        write_to_buffer(rec->tbuf_idx, &record, sizeof(TraceRecord));
+    }
 
     if (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx)
         > TRACE_BUF_FLUSH_THRESHOLD) {
@@ -489,7 +451,7 @@ void st_set_trace_file(const char *file)
 void orenmn_enable_tracing_single_event_optimization(int64_t num_of_arguments_of_event)
 {
     orenmn_single_event_optimization = true;
-    orenmn_trace_record_size = sizeof(TraceRecord) + 
+    orenmn_trace_record_size = sizeof(OrenmnOptimizedTraceRecord) + 
                                num_of_arguments_of_event * sizeof(uint64_t);
 }
 

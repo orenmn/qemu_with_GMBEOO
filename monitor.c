@@ -1165,9 +1165,9 @@ static void hmp_orenmn_enable_tracing_single_event_optimization(Monitor *mon, co
     orenmn_enable_tracing_single_event_optimization(num_of_arguments_of_event);
 }
 
-static void hmp_orenmn_get_compiled_analysis_tool_result(Monitor *mon, const QDict *qdict)
+static void hmp_orenmn_print_trace_results(Monitor *mon, const QDict *qdict)
 {
-    orenmn_get_compiled_analysis_tool_result();
+    orenmn_print_trace_results();
 }
 
 static void hmp_orenmn_set_our_buf_address(Monitor *mon, const QDict *qdict)

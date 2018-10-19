@@ -350,16 +350,16 @@ size).
 ETEXI
 
     {
-        .name       = "get_compiled_analysis_tool_result",
+        .name       = "print_trace_results",
         .args_type  = "",
         .params     = "",
         .help       = "For internal use.",
-        .cmd        = hmp_orenmn_get_compiled_analysis_tool_result,
+        .cmd        = hmp_orenmn_print_trace_results,
     },
 
 STEXI
-@item get_compiled_analysis_tool_result
-@findex get_compiled_analysis_tool_result
+@item print_trace_results
+@findex print_trace_results
 For internal use. 
 ETEXI
 
