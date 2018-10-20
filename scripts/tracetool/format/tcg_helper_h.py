@@ -32,6 +32,8 @@ def generate(events, backend, group):
 
         # TCG helper proxy declaration
         fmt = "DEF_HELPER_FLAGS_%(argc)d(%(name)s, %(flags)svoid%(types)s)"
+        # if e.name == 'guest_mem_before_exec':
+        #     fmt = "DEF_HELPER_FLAGS_%(argc)d(%(name)s___aoeu, %(flags)svoid%(types)s)"
         e_args = tracetool.vcpu.transform_args("tcg_helper_c", e.original, "header")
         args = e_args.transform(HOST_2_TCG_COMPAT, HOST_2_TCG,
                                 TCG_2_TCG_HELPER_DECL)

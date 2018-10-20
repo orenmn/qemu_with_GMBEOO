@@ -55,6 +55,9 @@ def generate_c_begin(events, group):
 
 
 def generate_c(event, group):
+    # if event.name == 'guest_mem_before_exec':
+    #     out('#include "target/i386/cpu.h"')
+        
     out('void _simple_%(api)s(%(args)s)',
         '{',
         '    TraceBufferRecord rec;',
@@ -81,6 +84,31 @@ def generate_c(event, group):
         cond = "true"
     else:
         cond = "trace_event_get_state(%s)" % event_id
+
+    if event.name == 'guest_mem_before_exec':
+        out('#ifdef __x86_64__',
+            typedef struct CPUX86State {
+    /* standard registers */
+    target_ulong regs[CPU_NB_REGS];
+    target_ulong eip;
+    target_ulong eflags; /* eflags register. During CPU emulation, CC
+                        flags and DF are set to zero because they are
+                        stored elsewhere */
+
+    /* emulator internal eflags handling */
+    target_ulong cc_dst;
+    target_ulong cc_src;
+    target_ulong cc_src2;
+    uint32_t cc_op;
+    int32_t df; /* D flag : 1 if D = 0, -1 if D = 1 */
+    uint32_t hflags; /* TB flags, see HF_xxx constants. These flags
+                        are known at translation time. */
+            '    target_ulong a = 3;',
+            '    uint32_t cpl = (((struct CPUX86State *)__cpu->env_ptr)->hflags & HF_CPL_MASK) >> ',
+            '                   HF_CPL_SHIFT;',
+            '    info |= cpl << 6;',
+            '#endif',
+            )    
 
     out('',
         '    if (!%(cond)s) {',
