@@ -173,6 +173,7 @@ void orenmn_set_our_buf_address(int *buf_addr) {
 
 void orenmn_print_trace_results(void)
 {
+    printf("orenmn_trace_record_size: %u\n", orenmn_trace_record_size);
     printf("orenmn_num_of_accesses_to_our_buf: %d\n",
            g_atomic_int_get(&orenmn_num_of_accesses_to_our_buf));
     printf("orenmn_num_of_mem_events_written: %d\n",
@@ -225,10 +226,33 @@ static gpointer writeout_thread(gpointer opaque)
                     temp_idx += orenmn_record_size;
                 }
                 unsigned int orenmn_num_of_bytes_to_write = temp_idx - idx;
-                unused = fwrite(&trace_buf[idx],
-                                orenmn_num_of_bytes_to_write, 1, trace_fp);
-                if (unused != 1) {
-                    printf("\n\nfwrite error!\n\n\n");
+                /* This case is guaranteed if
+                   `TRACE_BUF_LEN % orenmn_trace_record_size == 0`.
+                   So an easy optimization would be to set TRACE_BUF_LEN
+                   accordingly. */
+                if (temp_idx <= TRACE_BUF_LEN) {
+                    size_t fwrite_res = fwrite(&trace_buf[idx],
+                                               orenmn_num_of_bytes_to_write,
+                                               1, trace_fp);
+                    if (fwrite_res != 1) {
+                        printf("\n\nfwrite error! file: %s, line: %u\n\n\n",
+                               __FILE__, __LINE__);
+                    }
+                }
+                else {
+                    size_t fwrite_res = fwrite(&trace_buf[idx],
+                                               TRACE_BUF_LEN - idx,
+                                               1, trace_fp);
+                    if (fwrite_res != 1) {
+                        printf("\n\nfwrite error! file: %s, line: %u\n\n\n",
+                               __FILE__, __LINE__);
+                    }
+                    fwrite_res = fwrite(&trace_buf, temp_idx - TRACE_BUF_LEN,
+                                        1, trace_fp);
+                    if (fwrite_res != 1) {
+                        printf("\n\nfwrite error! file: %s, line: %u\n\n\n",
+                               __FILE__, __LINE__);
+                    }
                 }
 
                 // Instead of calling `clear_buffer_range`
@@ -432,12 +456,14 @@ void st_set_trace_file_enabled(bool enable)
             return;
         }
 
+        if (false) {
         if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
             st_write_event_mapping() < 0) {
             fclose(trace_fp);
             trace_fp = NULL;
             return;
         }
+    }
 
         /* Resume trace writeout */
         trace_writeout_enabled = true;
