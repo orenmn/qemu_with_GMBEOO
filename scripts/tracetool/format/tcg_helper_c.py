@@ -62,8 +62,7 @@ def generate(events, backend, group):
     for e in events:
         if "tcg-exec" not in e.properties:
             continue
-        # if e.name == 'guest_mem_before_exec':
-        #     raise RuntimeError('aoeu')
+
         e_args_api = tracetool.vcpu.transform_args(
             "tcg_helper_c", e.original, "header").transform(
                 HOST_2_TCG_COMPAT, TCG_2_TCG_HELPER_DEF)

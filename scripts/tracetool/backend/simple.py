@@ -55,9 +55,6 @@ def generate_c_begin(events, group):
 
 
 def generate_c(event, group):
-    # if event.name == 'guest_mem_before_exec':
-    #     out('#include "target/i386/cpu.h"')
-        
     out('void _simple_%(api)s(%(args)s)',
         '{',
         '    TraceBufferRecord rec;',
@@ -108,14 +105,13 @@ def generate_c(event, group):
             '    //     int32_t df; /* D flag : 1 if D = 0, -1 if D = 1 */',
             '    //     uint32_t hflags; /* TB flags, see HF_xxx constants. These flags',
             '    //                         are known at translation time. */',
-            '    //int cpu_nb_regs = 16;',
-            '    //int offset_of_hflags = sizeof(unsigned long) * (cpu_nb_regs + 5) + ',
-            '    //                       sizeof(uint32_t) + sizeof(int32_t);',
-            '    //uint32_t cpl = *(uint32_t *)(((char *)__cpu->env_ptr) + offset_of_hflags) & 3;',
-            '    //info |= cpl << 6;',
-            '    info |= 2 << 6;',
+            '    int cpu_nb_regs = 16;',
+            '    int offset_of_hflags = sizeof(unsigned long) * (cpu_nb_regs + 5) + ',
+            '                           sizeof(uint32_t) + sizeof(int32_t);',
+            '    uint32_t cpl = *(uint32_t *)(((char *)__cpu->env_ptr) + offset_of_hflags) & 3;',
+            '    info |= cpl << 6;',
             '#endif',
-            )    
+            )
 
     out('',
         '    if (!%(cond)s) {',
