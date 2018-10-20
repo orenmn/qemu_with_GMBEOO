@@ -274,11 +274,13 @@ static gpointer writeout_thread(gpointer opaque)
 
                 unsigned int orenmn_num_of_bytes_to_write = temp_idx - idx;
                 size_t fwrite_res;
+                if (false){
                 fwrite_res = fwrite(&trace_buf[idx], orenmn_num_of_bytes_to_write,
                                     1, trace_fp);
                 if (fwrite_res != 1) {
                     error_report("\nfwrite error! file: %s, line: %u\n\n",
                                  __FILE__, __LINE__);
+                }
                 }
                 // Instead of calling `clear_buffer_range`
                 memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
