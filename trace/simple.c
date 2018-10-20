@@ -32,6 +32,13 @@
 /** Trace record is valid */
 #define TRACE_RECORD_VALID ((uint64_t)1 << 63)
 
+#define ORENMN_CHECK_FWRITE_ERROR(fwrite_res, count_arg) {          \
+    if (fwrite_res != count_arg) {                                  \
+        error_report("\nfwrite error! file: %s, line: %u\n\n",  \
+                     __FILE__, __LINE__);                           \
+    }                                                               \
+}
+
 /*
  * Trace records are written out by a dedicated thread.  The thread waits for
  * records to become available, writes them out, and then waits again.
@@ -44,7 +51,7 @@ static bool trace_available;
 static bool trace_writeout_enabled;
 
 enum {
-    TRACE_BUF_LEN = 4096 * 64,
+    TRACE_BUF_LEN = 4096 * 72,
     TRACE_BUF_FLUSH_THRESHOLD = TRACE_BUF_LEN / 4,
 };
 
@@ -173,20 +180,47 @@ void orenmn_set_our_buf_address(int *buf_addr) {
 
 void orenmn_print_trace_results(void)
 {
-    printf("orenmn_trace_record_size: %u\n", orenmn_trace_record_size);
-    printf("orenmn_num_of_accesses_to_our_buf: %d\n",
-           g_atomic_int_get(&orenmn_num_of_accesses_to_our_buf));
-    printf("orenmn_num_of_mem_events_written: %d\n",
-           g_atomic_int_get(&orenmn_num_of_mem_events_written));
-    printf("orenmn_num_of_mem_events: %d\n",
-           g_atomic_int_get(&orenmn_num_of_mem_events));
+    info_report("trace_idx: %d", g_atomic_int_get(&trace_idx));
+    if (orenmn_single_event_optimization) {
+        info_report("trace_idx / orenmn_trace_record_size: %u",
+                    (uint32_t)g_atomic_int_get(&trace_idx) / orenmn_trace_record_size);
+
+        unsigned int num_of_events_waiting_in_trace_buf = 0;
+        for (unsigned int i = 0; i < TRACE_BUF_LEN; i += orenmn_trace_record_size) {
+            if (((orenmn_OptimizedTraceRecord *)&trace_buf[i])->event &
+                TRACE_RECORD_VALID)
+            {
+                ++num_of_events_waiting_in_trace_buf;
+                info_report("%u", i);
+            }
+        }
+        info_report("num_of_events_waiting_in_trace_buf: %u",
+                    num_of_events_waiting_in_trace_buf);
+        unsigned int num_of_missing_events =
+            g_atomic_int_get(&orenmn_num_of_mem_events) - 
+            g_atomic_int_get(&orenmn_num_of_mem_events_written) -
+            num_of_events_waiting_in_trace_buf;
+        if (num_of_missing_events != 0) {
+            warn_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
+                        "num_of_missing_events: %u.", num_of_missing_events);
+        }
+        info_report("num_of_events_waiting_in_trace_buf: %u",
+                    num_of_events_waiting_in_trace_buf);
+
+    }
+    info_report("orenmn_num_of_accesses_to_our_buf: %d",
+                g_atomic_int_get(&orenmn_num_of_accesses_to_our_buf));
+    info_report("orenmn_num_of_mem_events_written: %d",
+                g_atomic_int_get(&orenmn_num_of_mem_events_written));
+    info_report("orenmn_num_of_mem_events: %d",
+                g_atomic_int_get(&orenmn_num_of_mem_events));
 
     int num_of_dropped_events = g_atomic_int_get(&dropped_events);
     if (num_of_dropped_events != 0) {
-        printf("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
-               "%d events were dropped.\n", num_of_dropped_events);
+        warn_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
+                    "%d events were dropped.", num_of_dropped_events);
     }
-    printf("\n");
+    printf("\n"); // orenmn: for my own convenience. shouldn't be here.
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -226,42 +260,35 @@ static gpointer writeout_thread(gpointer opaque)
                     temp_idx += orenmn_record_size;
                 }
                 unsigned int orenmn_num_of_bytes_to_write = temp_idx - idx;
+                size_t fwrite_res;
                 /* This case is guaranteed if
                    `TRACE_BUF_LEN % orenmn_trace_record_size == 0`.
                    So an easy optimization would be to set TRACE_BUF_LEN
                    accordingly. */
                 if (temp_idx <= TRACE_BUF_LEN) {
-                    size_t fwrite_res = fwrite(&trace_buf[idx],
-                                               orenmn_num_of_bytes_to_write,
-                                               1, trace_fp);
-                    if (fwrite_res != 1) {
-                        printf("\n\nfwrite error! file: %s, line: %u\n\n\n",
-                               __FILE__, __LINE__);
-                    }
+                    fwrite_res = fwrite(&trace_buf[idx], orenmn_num_of_bytes_to_write,
+                                        1, trace_fp);
+                    ORENMN_CHECK_FWRITE_ERROR(fwrite_res, 1);
+                    // Instead of calling `clear_buffer_range`
+                    memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
                 }
                 else {
-                    size_t fwrite_res = fwrite(&trace_buf[idx],
-                                               TRACE_BUF_LEN - idx,
-                                               1, trace_fp);
-                    if (fwrite_res != 1) {
-                        printf("\n\nfwrite error! file: %s, line: %u\n\n\n",
-                               __FILE__, __LINE__);
-                    }
-                    fwrite_res = fwrite(&trace_buf, temp_idx - TRACE_BUF_LEN,
+                    size_t num_of_bytes_until_end_of_trace_buf = TRACE_BUF_LEN - idx;
+                    size_t num_of_bytes_of_leftovers = temp_idx - TRACE_BUF_LEN;
+                    fwrite_res = fwrite(&trace_buf[idx],
+                                        num_of_bytes_until_end_of_trace_buf,
                                         1, trace_fp);
-                    if (fwrite_res != 1) {
-                        printf("\n\nfwrite error! file: %s, line: %u\n\n\n",
-                               __FILE__, __LINE__);
-                    }
+                    ORENMN_CHECK_FWRITE_ERROR(fwrite_res, 1);
+                    fwrite_res = fwrite(&trace_buf, num_of_bytes_of_leftovers,
+                                        1, trace_fp);
+                    ORENMN_CHECK_FWRITE_ERROR(fwrite_res, 1);
+                    // Instead of calling `clear_buffer_range`
+                    memset(&trace_buf[idx], 0, num_of_bytes_until_end_of_trace_buf);
+                    memset(&trace_buf, 0, num_of_bytes_of_leftovers);
                 }
-
-                // Instead of calling `clear_buffer_range`
-                memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
                 
                 writeout_idx += orenmn_num_of_bytes_to_write;
                 idx = writeout_idx % TRACE_BUF_LEN;
-
-                assert(orenmn_num_of_bytes_to_write % orenmn_trace_record_size == 0);
             }
         }
         else {
@@ -337,10 +364,8 @@ int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
             g_atomic_int_inc(&dropped_events);
             return -ENOSPC;
         }
-        else {
-            g_atomic_int_inc(&orenmn_num_of_mem_events);
-        }
     } while (!g_atomic_int_compare_and_exchange(&trace_idx, old_idx, new_idx));
+
 
     idx = old_idx % TRACE_BUF_LEN;
 
@@ -404,6 +429,7 @@ void trace_record_finish(TraceBufferRecord *rec)
         write_to_buffer(rec->tbuf_idx, &record, sizeof(TraceRecord));
     }
 
+    g_atomic_int_inc(&orenmn_num_of_mem_events);
     if (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx)
         > TRACE_BUF_FLUSH_THRESHOLD) {
         flush_trace_file(false);
@@ -498,11 +524,23 @@ void st_set_trace_file(const char *file)
 
 void orenmn_enable_tracing_single_event_optimization(int64_t num_of_arguments_of_event)
 {
-    orenmn_single_event_optimization = true;
-    orenmn_trace_record_size = sizeof(orenmn_OptimizedTraceRecord) + 
-                               num_of_arguments_of_event * sizeof(uint64_t);
-    printf("single_event_optimization is on.\n"
-           "trace record size: %u\n", orenmn_trace_record_size);
+    uint32_t record_size = sizeof(orenmn_OptimizedTraceRecord) + 
+                           num_of_arguments_of_event * sizeof(uint64_t);
+    assert(record_size > 0);
+    if (TRACE_BUF_LEN % record_size != 0) {
+        error_report("    single_event_optimization requires that TRACE_BUF_LEN "
+                     "is a multiple of the size of a trace record (%u). "
+                     "Unfortunately, TRACE_BUF_LEN %% record_size == %u. "
+                     "If you wish to use single_event_optimization, recompile "
+                     "qemu so that TRACE_BUF_LEN fits the size of a trace "
+                     "record.", record_size, TRACE_BUF_LEN % record_size);
+    }
+    else {
+        orenmn_single_event_optimization = true;
+        orenmn_trace_record_size = record_size;
+        info_report("    single_event_optimization is on. "
+                    "trace record size: %u", orenmn_trace_record_size);
+    }
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
