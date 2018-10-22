@@ -37,6 +37,7 @@
  * records to become available, writes them out, and then waits again.
  */
 static GMutex trace_lock;
+static GMutex orenmn_monitor_cmds_lock;
 static GCond trace_available_cond;
 static GCond trace_empty_cond;
 
@@ -52,14 +53,14 @@ uint8_t trace_buf[TRACE_BUF_LEN];
 static volatile gint trace_idx;
 static unsigned int writeout_idx;
 static volatile gint dropped_events;
+static uint32_t trace_pid;
+static FILE *trace_fp;
+static char *trace_file_name;
+
 static uint32_t orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file = 0;
 // SEO = Single Event Optimization
 static volatile gint orenmn_SEO_num_of_events_written_to_trace_file = 0;
 static volatile gint orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled = 0;
-static volatile gint orenmn_num_of_non_GMBE_events_since_SEO_enabled = 0;
-static uint32_t trace_pid;
-static FILE *trace_fp;
-static char *trace_file_name;
 static bool orenmn_single_event_optimization = false;
 static bool orenmn_trace_only_user_code_GMBE = false;
 static int orenmn_log_of_GMBE_block_len = 0;
@@ -174,11 +175,19 @@ static void wait_for_trace_records_available(void)
 }
 
 void orenmn_set_our_buf_address(int *buf_addr) {
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
+
     orenmn_our_buf_addr = buf_addr;
+
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 void orenmn_update_trace_only_user_code_GMBE(bool flag) {
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
+
     orenmn_trace_only_user_code_GMBE = flag;
+
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 /* Assumes that both log_of_GMBE_block_len and log_of_GMBE_tracing_ratio are
@@ -186,6 +195,8 @@ void orenmn_update_trace_only_user_code_GMBE(bool flag) {
 static void orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
     int log_of_GMBE_block_len, int log_of_GMBE_tracing_ratio)
 {
+    orenmn_log_of_GMBE_block_len = log_of_GMBE_block_len;
+    orenmn_log_of_GMBE_tracing_ratio = log_of_GMBE_tracing_ratio;
     if (log_of_GMBE_block_len + log_of_GMBE_tracing_ratio > 64) {
         error_report("log_of_GMBE_block_len + log_of_GMBE_tracing_ratio must "
                      "be in [0, 64].");
@@ -204,22 +215,30 @@ static void orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
 
 /* Assumes that log_of_GMBE_block_len is in [0, 64]. */
 void orenmn_set_log_of_GMBE_block_len(int log_of_GMBE_block_len) {
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
+
     orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
         log_of_GMBE_block_len, orenmn_log_of_GMBE_tracing_ratio);
+
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 /* Assumes that log_of_GMBE_tracing_ratio is in [0, 64]. */
 void orenmn_set_log_of_GMBE_tracing_ratio(int log_of_GMBE_tracing_ratio) {
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
+
     orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
         orenmn_log_of_GMBE_block_len, log_of_GMBE_tracing_ratio);
+
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 void orenmn_print_trace_results(void)
 {
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
+
     uint64_t num_of_GMBE_events = (uint64_t)g_atomic_pointer_get(&orenmn_GMBE_idx);
     info_report("num_of_GMBE_events: %lu", num_of_GMBE_events);
-    info_report("orenmn_num_of_non_GMBE_events_since_SEO_enabled: %d", 
-                g_atomic_int_get(&orenmn_num_of_non_GMBE_events_since_SEO_enabled));
 
     if (orenmn_single_event_optimization) {
         unsigned int SEO_num_of_events_written_to_trace_buf =
@@ -282,6 +301,8 @@ void orenmn_print_trace_results(void)
                     "%d events were dropped.", num_of_dropped_events);
     }
     printf("\n"); // orenmn: for my own convenience. shouldn't be here.
+
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -397,12 +418,6 @@ int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
     if (orenmn_single_event_optimization) {
         rec_len = orenmn_SEO_trace_record_size;
         assert(rec_len == sizeof(orenmn_OptimizedTraceRecord) + datasize);
-        if (event != 75) {
-            // g_atomic_int_set(&orenmn_num_of_non_GMBE_events_since_SEO_enabled, event);
-            // g_atomic_int_inc(&orenmn_num_of_non_GMBE_events_since_SEO_enabled);
-            // info_report("SEO is on and trace_record_start was called for a "
-            //             "Non GMBE event.");
-        }
     }
     else {
         rec_len = sizeof(TraceRecord) + datasize;
@@ -577,6 +592,8 @@ void st_set_trace_file(const char *file)
 
 void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_of_event)
 {
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    
     uint32_t record_size = sizeof(orenmn_OptimizedTraceRecord) +
                            num_of_arguments_of_event * sizeof(uint64_t);
     assert(record_size > 0);
@@ -596,6 +613,8 @@ void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_o
     }
     g_atomic_int_set(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled, 0);
     g_atomic_pointer_set(&orenmn_GMBE_idx, 0);
+
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
@@ -657,7 +676,6 @@ bool orenmn_should_trace_this_GMBE(void) {
 /* Return true if should trace, according to
    orenmn_trace_only_user_code_GMBE. Otherwise, return false. */
 bool orenmn_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
-    g_atomic_int_inc(&orenmn_num_of_non_GMBE_events_since_SEO_enabled);
     // orenmn: This is CPUX86State's definition in target/i386/cpu.h,
     // which I didn't manage to include here. Thus I couldn't do
     // `((struct CPUX86State *)__cpu->env_ptr)->hflags`, and thus this very

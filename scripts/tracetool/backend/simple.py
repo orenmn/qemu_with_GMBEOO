@@ -84,15 +84,15 @@ def generate_c(event, group):
 
     if event.name == 'guest_mem_before_exec':
         out('',
-            '    if (!orenmn_should_trace_this_GMBE()) {',
-            '        return;',
-            '    }',
-            '',
             '#ifdef __x86_64__',
             '    if (!orenmn_add_cpl_to_GMBE_info_if_should_trace(&info, (uint8_t *)__cpu->env_ptr)) {',
             '        return;',
             '    }',
             '#endif',
+            '',
+            '    if (!orenmn_should_trace_this_GMBE()) {',
+            '        return;',
+            '    }',
             )
 
     out('',
