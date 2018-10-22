@@ -16,8 +16,8 @@ void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_o
 void orenmn_print_trace_results(void);
 void orenmn_set_our_buf_address(int *buf_addr);
 void orenmn_update_trace_only_user_code_GMBE(bool flag);
-void orenmn_set_GMBE_block_len(uint64_t block_len);
-void orenmn_set_GMBE_tracing_ratio(uint64_t tracing_ratio);
+void orenmn_set_log_of_GMBE_block_len(int block_len);
+void orenmn_set_log_of_GMBE_tracing_ratio(int tracing_ratio);
 bool orenmn_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env);
 bool orenmn_should_trace_this_GMBE(void);
 void st_set_trace_file_enabled(bool enable);

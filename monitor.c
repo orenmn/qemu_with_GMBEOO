@@ -1182,16 +1182,24 @@ static void hmp_orenmn_update_trace_only_user_code_GMBE(Monitor *mon, const QDic
     orenmn_update_trace_only_user_code_GMBE(flag);
 }
 
-static void hmp_orenmn_set_GMBE_block_len(Monitor *mon, const QDict *qdict)
+static void hmp_orenmn_set_log_of_GMBE_block_len(Monitor *mon, const QDict *qdict)
 {
-    uint64_t block_len = qdict_get_uint(qdict, "GMBE_block_len");
-    orenmn_set_GMBE_block_len(block_len);
+    int64_t log_of_block_len = qdict_get_int(qdict, "log_of_GMBE_block_len");
+    if (log_of_block_len < 0 || log_of_block_len > 64) {
+        error_report("log_of_GMBE_block_len must be in [0, 64].");
+        return;
+    }
+    orenmn_set_log_of_GMBE_block_len(log_of_block_len);
 }
 
-static void hmp_orenmn_set_GMBE_tracing_ratio(Monitor *mon, const QDict *qdict)
+static void hmp_orenmn_set_log_of_GMBE_tracing_ratio(Monitor *mon, const QDict *qdict)
 {
-    uint64_t tracing_ratio = qdict_get_uint(qdict, "GMBE_tracing_ratio");
-    orenmn_set_GMBE_tracing_ratio(tracing_ratio);
+    int64_t log_of_tracing_ratio = qdict_get_int(qdict, "log_of_GMBE_tracing_ratio");
+    if (log_of_tracing_ratio < 0 || log_of_tracing_ratio > 64) {
+        error_report("log_of_GMBE_tracing_ratio must be in [0, 64].");
+        return;
+    }
+    orenmn_set_log_of_GMBE_tracing_ratio(log_of_tracing_ratio);
 }
 #endif
 

@@ -52,19 +52,23 @@ uint8_t trace_buf[TRACE_BUF_LEN];
 static volatile gint trace_idx;
 static unsigned int writeout_idx;
 static volatile gint dropped_events;
-static uint32_t orenmn_num_of_accesses_to_our_buf_not_written_to_trace_file = 0;
-static volatile gint orenmn_num_of_mem_events_written_to_trace_file = 0;
-static volatile gint orenmn_num_of_mem_events_written_to_trace_buf = 0;
+static uint32_t orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file = 0;
+// SEO = Single Event Optimization
+static volatile gint orenmn_SEO_num_of_events_written_to_trace_file = 0;
+static volatile gint orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled = 0;
+static volatile gint orenmn_num_of_non_GMBE_events_since_SEO_enabled = 0;
 static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
 static bool orenmn_single_event_optimization = false;
 static bool orenmn_trace_only_user_code_GMBE = false;
+static int orenmn_log_of_GMBE_block_len = 0;
+static int orenmn_log_of_GMBE_tracing_ratio = 0;
+static volatile gpointer orenmn_GMBE_idx = 0;
+static volatile gint orenmn_GMBE_idx_as_int = 0;
 static uint64_t orenmn_mask_of_GMBE_idx_in_GMBE_block = 0;
-static volatile gint orenmn_GMBE_idx_in_GMBE_block = 0;
 static uint64_t orenmn_mask_of_GMBE_block_idx = 0;
-static volatile gint orenmn_GMBE_block_idx = 0;
-static uint32_t orenmn_trace_record_size = 0;
+static uint32_t orenmn_SEO_trace_record_size = 0;
 static int * orenmn_our_buf_addr = 0;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
@@ -178,37 +182,62 @@ void orenmn_update_trace_only_user_code_GMBE(bool flag) {
     orenmn_trace_only_user_code_GMBE = flag;
 }
 
-/* Assumes that block_len is a power of 2. */
-void orenmn_set_GMBE_block_len(uint64_t block_len) {
-    orenmn_mask_of_GMBE_idx_in_GMBE_block = block_len - 1;
-    orenmn_GMBE_idx_in_GMBE_block = 0;
-    orenmn_GMBE_block_idx = 0;
+/* Assumes that both log_of_GMBE_block_len and log_of_GMBE_tracing_ratio are
+   in [0, 64]. */
+static void orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
+    int log_of_GMBE_block_len, int log_of_GMBE_tracing_ratio)
+{
+    if (log_of_GMBE_block_len + log_of_GMBE_tracing_ratio > 64) {
+        error_report("log_of_GMBE_block_len + log_of_GMBE_tracing_ratio must "
+                     "be in [0, 64].");
+        return;
+    }
+    orenmn_mask_of_GMBE_idx_in_GMBE_block = (1 << log_of_GMBE_block_len) - 1;
+    orenmn_mask_of_GMBE_block_idx = ((1 << log_of_GMBE_tracing_ratio) - 1) <<
+                                    log_of_GMBE_block_len;
+    g_atomic_pointer_set(&orenmn_GMBE_idx, 0);
+
+    info_report("orenmn_mask_of_GMBE_idx_in_GMBE_block: %016lx\n"
+                "orenmn_mask_of_GMBE_block_idx: %016lx",
+                orenmn_mask_of_GMBE_idx_in_GMBE_block,
+                orenmn_mask_of_GMBE_block_idx);
 }
 
-/* Assumes that tracing_ratio is a power of 2. */
-void orenmn_set_GMBE_tracing_ratio(uint64_t tracing_ratio) {
-    orenmn_mask_of_GMBE_block_idx = tracing_ratio - 1;
-    orenmn_GMBE_idx_in_GMBE_block = 0;
-    orenmn_GMBE_block_idx = 0;
+/* Assumes that log_of_GMBE_block_len is in [0, 64]. */
+void orenmn_set_log_of_GMBE_block_len(int log_of_GMBE_block_len) {
+    orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
+        log_of_GMBE_block_len, orenmn_log_of_GMBE_tracing_ratio);
+}
+
+/* Assumes that log_of_GMBE_tracing_ratio is in [0, 64]. */
+void orenmn_set_log_of_GMBE_tracing_ratio(int log_of_GMBE_tracing_ratio) {
+    orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
+        orenmn_log_of_GMBE_block_len, log_of_GMBE_tracing_ratio);
 }
 
 void orenmn_print_trace_results(void)
 {
+    uint64_t num_of_GMBE_events = (uint64_t)g_atomic_pointer_get(&orenmn_GMBE_idx);
+    info_report("num_of_GMBE_events: %lu", num_of_GMBE_events);
+    info_report("orenmn_GMBE_idx_as_int: %d", g_atomic_int_get(&orenmn_GMBE_idx_as_int));
+    info_report("orenmn_num_of_non_GMBE_events_since_SEO_enabled: %d", 
+                g_atomic_int_get(&orenmn_num_of_non_GMBE_events_since_SEO_enabled));
+
     if (orenmn_single_event_optimization) {
-        unsigned int num_of_events_written_to_trace_buf =
-            (uint32_t)g_atomic_int_get(&trace_idx) / orenmn_trace_record_size;
-        if (g_atomic_int_get(&orenmn_num_of_mem_events_written_to_trace_buf) !=
-            num_of_events_written_to_trace_buf)
+        unsigned int SEO_num_of_events_written_to_trace_buf =
+            (uint32_t)g_atomic_int_get(&trace_idx) / orenmn_SEO_trace_record_size;
+        if (g_atomic_int_get(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled) !=
+            SEO_num_of_events_written_to_trace_buf)
         {
             error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
-                         "num_of_events_written_to_trace_buf (%u) != num of events "
-                         "orenmn_num_of_mem_events_written_to_trace_buf (%d). "
+                         "SEO_num_of_events_written_to_trace_buf (%u) != num of events "
+                         "orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled (%d). "
                          "smells like a bug.",
-                         num_of_events_written_to_trace_buf,
-                         g_atomic_int_get(&orenmn_num_of_mem_events_written_to_trace_buf));
+                         SEO_num_of_events_written_to_trace_buf,
+                         g_atomic_int_get(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled));
         }
         unsigned int num_of_events_waiting_in_trace_buf = 0;
-        for (unsigned int i = 0; i < TRACE_BUF_LEN; i += orenmn_trace_record_size) {
+        for (unsigned int i = 0; i < TRACE_BUF_LEN; i += orenmn_SEO_trace_record_size) {
             if (((orenmn_OptimizedTraceRecord *)&trace_buf[i])->event &
                 TRACE_RECORD_VALID)
             {
@@ -217,7 +246,7 @@ void orenmn_print_trace_results(void)
                 if (virt_addr >= (uint64_t)orenmn_our_buf_addr &&
                     virt_addr < (uint64_t)orenmn_our_buf_addr + 20000 * sizeof(int))
                 {
-                    ++orenmn_num_of_accesses_to_our_buf_not_written_to_trace_file;
+                    ++orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file;
                 }
                 ++num_of_events_waiting_in_trace_buf;
                 // info_report("%u", i);
@@ -226,24 +255,28 @@ void orenmn_print_trace_results(void)
         info_report("num_of_events_waiting_in_trace_buf: %u",
                     num_of_events_waiting_in_trace_buf);
         unsigned int num_of_missing_events =
-            num_of_events_written_to_trace_buf -
-            g_atomic_int_get(&orenmn_num_of_mem_events_written_to_trace_file) -
+            SEO_num_of_events_written_to_trace_buf -
+            g_atomic_int_get(&orenmn_SEO_num_of_events_written_to_trace_file) -
             num_of_events_waiting_in_trace_buf;
         if (num_of_missing_events != 0) {
             error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
                          "num_of_missing_events (i.e. "
-                         "num_of_events_written_to_trace_buf - "
-                         "orenmn_num_of_mem_events_written_to_trace_file - "
+                         "SEO_num_of_events_written_to_trace_buf - "
+                         "orenmn_SEO_num_of_events_written_to_trace_file - "
                          "num_of_events_waiting_in_trace_buf): %u.",
                          num_of_missing_events);
         }
+        info_report("SEO_num_of_events_written_to_trace_buf: %d",
+                    SEO_num_of_events_written_to_trace_buf);
+        if (SEO_num_of_events_written_to_trace_buf != 0) {
+            info_report("num_of_GMBE_events / SEO_num_of_events_written_to_trace_buf: %lf",
+                        (double)num_of_GMBE_events / SEO_num_of_events_written_to_trace_buf);
+        }
     }
-    if (orenmn_num_of_accesses_to_our_buf_not_written_to_trace_file != 0) {
-        info_report("orenmn_num_of_accesses_to_our_buf_not_written_to_trace_file: %u",
-                    orenmn_num_of_accesses_to_our_buf_not_written_to_trace_file);
+    if (orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file != 0) {
+        info_report("orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file: %u",
+                    orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file);
     }
-    info_report("orenmn_num_of_mem_events_written_to_trace_file: %d",
-                g_atomic_int_get(&orenmn_num_of_mem_events_written_to_trace_file));
 
     int num_of_dropped_events = g_atomic_int_get(&dropped_events);
     if (num_of_dropped_events != 0) {
@@ -271,7 +304,7 @@ static gpointer writeout_thread(gpointer opaque)
         if (orenmn_single_event_optimization) {
             /* Just let dropped_events count the number dropped events. */
 
-            uint32_t orenmn_record_size = orenmn_trace_record_size;
+            uint32_t orenmn_record_size = orenmn_SEO_trace_record_size;
 
             /* We can't call fwrite once for both the end and the beginning of
                trace_buf, so we add this while loop, to prevent a case in which
@@ -285,13 +318,13 @@ static gpointer writeout_thread(gpointer opaque)
                 unsigned int temp_idx = idx;
                 /* Dereferencing to get the event field is OK because it is
                    guaranteed that
-                   `TRACE_BUF_LEN % orenmn_trace_record_size == 0`.
+                   `TRACE_BUF_LEN % orenmn_SEO_trace_record_size == 0`.
                    This also guarantees that when the loop ends,
                    `temp_idx <= TRACE_BUF_LEN`. */
                 while (temp_idx < TRACE_BUF_LEN &&
                        (((orenmn_OptimizedTraceRecord *)&trace_buf[temp_idx])->event &
                         TRACE_RECORD_VALID)) {
-                    g_atomic_int_inc(&orenmn_num_of_mem_events_written_to_trace_file);
+                    g_atomic_int_inc(&orenmn_SEO_num_of_events_written_to_trace_file);
                     temp_idx += orenmn_record_size;
                 }
 
@@ -346,7 +379,7 @@ void trace_record_write_u64(TraceBufferRecord *rec, uint64_t val)
     // if (val >= (uint64_t)orenmn_our_buf_addr &&
     //     val < (uint64_t)orenmn_our_buf_addr + 20000 * sizeof(int))
     // {
-    //     g_atomic_int_inc(&orenmn_num_of_accesses_to_our_buf_not_written_to_trace_file);
+    //     g_atomic_int_inc(&orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file);
     // }
     rec->rec_off = write_to_buffer(rec->rec_off, &val, sizeof(uint64_t));
 }
@@ -364,8 +397,14 @@ int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
     unsigned int idx, rec_off, old_idx, new_idx;
     uint32_t rec_len;
     if (orenmn_single_event_optimization) {
-        rec_len = orenmn_trace_record_size;
+        rec_len = orenmn_SEO_trace_record_size;
         assert(rec_len == sizeof(orenmn_OptimizedTraceRecord) + datasize);
+        if (event != 75) {
+            // g_atomic_int_set(&orenmn_num_of_non_GMBE_events_since_SEO_enabled, event);
+            // g_atomic_int_inc(&orenmn_num_of_non_GMBE_events_since_SEO_enabled);
+            // info_report("SEO is on and trace_record_start was called for a "
+            //             "Non GMBE event.");
+        }
     }
     else {
         rec_len = sizeof(TraceRecord) + datasize;
@@ -447,7 +486,7 @@ void trace_record_finish(TraceBufferRecord *rec)
         write_to_buffer(rec->tbuf_idx, &record, sizeof(TraceRecord));
     }
 
-    g_atomic_int_inc(&orenmn_num_of_mem_events_written_to_trace_buf);
+    g_atomic_int_inc(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled);
     if (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx)
         > TRACE_BUF_FLUSH_THRESHOLD) {
         flush_trace_file(false);
@@ -553,10 +592,12 @@ void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_o
     }
     else {
         orenmn_single_event_optimization = true;
-        orenmn_trace_record_size = record_size;
+        orenmn_SEO_trace_record_size = record_size;
         info_report("    single_event_optimization is on. "
-                    "trace record size: %u", orenmn_trace_record_size);
+                    "trace record size: %u", orenmn_SEO_trace_record_size);
     }
+    g_atomic_int_set(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled, 0);
+    g_atomic_pointer_set(&orenmn_GMBE_idx, 0);
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
@@ -611,44 +652,25 @@ bool st_init(void)
 }
 
 bool orenmn_should_trace_this_GMBE(void) {
-    /* orenmn: I worry that this while loop would really slow stuff in some
-       cases... */
-    int GMBE_idx_in_GMBE_block;
-    do {
-        GMBE_idx_in_GMBE_block = g_atomic_int_get(&orenmn_GMBE_idx_in_GMBE_block);
-        GMBE_block_idx &= orenmn_mask_of_GMBE_block_idx;
-    } while (!g_atomic_int_compare_and_exchange(&orenmn_GMBE_idx_in_GMBE_block,
-                                                GMBE_idx_in_GMBE_block,
-                                                ++GMBE_idx_in_GMBE_block));
-    GMBE_idx_in_GMBE_block &= orenmn_mask_of_GMBE_idx_in_GMBE_block;
-
-    int GMBE_block_idx;
-    int GMBE_idx_in_GMBE_block = g_atomic_int_add(&orenmn_GMBE_idx_in_GMBE_block, 1);
-    int GMBE_block_idx;
-    if (GMBE_idx_in_GMBE_block == 0) {
-        GMBE_block_idx = g_atomic_int_add(&orenmn_GMBE_block_idx, 1) + 1;
-    }
-    else {
-        GMBE_block_idx = g_atomic_int_get(&orenmn_GMBE_block_idx, 1);
-    }
-        GMBE_block_idx &= orenmn_mask_of_GMBE_block_idx;
-
-    // do {
-    //     GMBE_idx_in_GMBE_block = g_atomic_int_get(&orenmn_GMBE_idx_in_GMBE_block);
-    // } while (!g_atomic_int_compare_and_exchange(&orenmn_GMBE_idx_in_GMBE_block,
-    //                                             GMBE_idx_in_GMBE_block,
-    //                                             ++GMBE_idx_in_GMBE_block));
-    g_atomic_int_inc(&orenmn_GMBE_idx_in_GMBE_block);
+    uint64_t GMBE_idx = (uint64_t)g_atomic_pointer_add(&orenmn_GMBE_idx, 1);
+    g_atomic_int_inc(&orenmn_GMBE_idx_as_int);
+    return (GMBE_idx & orenmn_mask_of_GMBE_block_idx) == 0;
 }
 
 /* Return true if should trace, according to
    orenmn_trace_only_user_code_GMBE. Otherwise, return false. */
 bool orenmn_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
+    g_atomic_int_inc(&orenmn_num_of_non_GMBE_events_since_SEO_enabled);
     // orenmn: This is CPUX86State's definition in target/i386/cpu.h,
     // which I didn't manage to include here. Thus I couldn't do
     // `((struct CPUX86State *)__cpu->env_ptr)->hflags`, and thus this very
     // ugly solution.
     // Please replace this ugliness with something beautiful if you can.
+    // A less ugly solution would be to add something to the makefile that uses
+    // offsetof(struct CPUX86State, hflags), and then run a Python script to
+    // patch the code in this function to do
+    // `env[offsetof(struct CPUX86State, hflags)]`.
+    // 
     // typedef struct CPUX86State {
     //     /* standard registers */
     //     target_ulong regs[CPU_NB_REGS];

@@ -395,37 +395,37 @@ by both user and kernel code, or only accesses by user code.
 ETEXI
 
     {
-        .name       = "set_GMBE_block_len",
-        .args_type  = "GMBE_block_len:l",
-        .params     = "GMBE_block_len",
-        .help       = "Set the length of a GMBE_block, i.e. the number "
-                      " of GMBE events in a GMBE_block.",
-        .cmd        = hmp_orenmn_set_GMBE_block_len,
+        .name       = "set_log_of_GMBE_block_len",
+        .args_type  = "log_of_GMBE_block_len:i",
+        .params     = "log_of_GMBE_block_len",
+        .help       = "Set the log of the length of a GMBE_block, i.e. the number "
+                      "of GMBE events in a GMBE_block.",
+        .cmd        = hmp_orenmn_set_log_of_GMBE_block_len,
     },
 
 STEXI
-@item set_GMBE_block_len
-@findex set_GMBE_block_len
-Set the length of a GMBE_block, i.e. the number
+@item set_log_of_GMBE_block_len
+@findex set_log_of_GMBE_block_len
+Set the log of the length of a GMBE_block, i.e. the number
 of GMBE events in a GMBE_block.
 ETEXI
 
     {
-        .name       = "set_GMBE_tracing_ratio",
-        .args_type  = "GMBE_tracing_ratio:l",
-        .params     = "GMBE_tracing_ratio",
-        .help       = "Set the ratio between the number of blocks "
+        .name       = "set_log_of_GMBE_tracing_ratio",
+        .args_type  = "log_of_GMBE_tracing_ratio:i",
+        .params     = "log_of_GMBE_tracing_ratio",
+        .help       = "Set the log of the ratio between the number of blocks "
                       "of GMBE events we trace to the "
                       "total number of blocks.",
-        .cmd        = hmp_orenmn_set_GMBE_tracing_ratio,
+        .cmd        = hmp_orenmn_set_log_of_GMBE_tracing_ratio,
     },
 
 STEXI
-@item set_GMBE_tracing_ratio
-@findex set_GMBE_tracing_ratio
-Set the ratio between the number of blocks
+@item set_log_of_GMBE_tracing_ratio
+@findex set_log_of_GMBE_tracing_ratio
+Set the log of the ratio between the number of blocks
 of GMBE events we trace to the
-total number of blocks.,
+total number of blocks.
 ETEXI
 #endif
 

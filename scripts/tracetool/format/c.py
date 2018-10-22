@@ -39,14 +39,19 @@ def generate(events, backend, group):
             vcpu_id = 0
         else:
             vcpu_id = "TRACE_VCPU_EVENT_NONE"
+        if e.name == 'guest_mem_before_exec':
+            event_id = '3'
+        else:
+            event_id = '0'
         out('TraceEvent %(event)s = {',
-            '    .id = 0,',
+            '    .id = %(event_id_)s,',
             '    .vcpu_id = %(vcpu_id)s,',
             '    .name = \"%(name)s\",',
             '    .sstate = %(sstate)s,',
             '    .dstate = &%(dstate)s ',
             '};',
             event = e.api(e.QEMU_EVENT),
+            event_id_ = event_id,
             vcpu_id = vcpu_id,
             name = e.name,
             sstate = "TRACE_%s_ENABLED" % e.name.upper(),
