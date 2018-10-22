@@ -65,7 +65,6 @@ static bool orenmn_trace_only_user_code_GMBE = false;
 static int orenmn_log_of_GMBE_block_len = 0;
 static int orenmn_log_of_GMBE_tracing_ratio = 0;
 static volatile gpointer orenmn_GMBE_idx = 0;
-static volatile gint orenmn_GMBE_idx_as_int = 0;
 static uint64_t orenmn_mask_of_GMBE_idx_in_GMBE_block = 0;
 static uint64_t orenmn_mask_of_GMBE_block_idx = 0;
 static uint32_t orenmn_SEO_trace_record_size = 0;
@@ -219,7 +218,6 @@ void orenmn_print_trace_results(void)
 {
     uint64_t num_of_GMBE_events = (uint64_t)g_atomic_pointer_get(&orenmn_GMBE_idx);
     info_report("num_of_GMBE_events: %lu", num_of_GMBE_events);
-    info_report("orenmn_GMBE_idx_as_int: %d", g_atomic_int_get(&orenmn_GMBE_idx_as_int));
     info_report("orenmn_num_of_non_GMBE_events_since_SEO_enabled: %d", 
                 g_atomic_int_get(&orenmn_num_of_non_GMBE_events_since_SEO_enabled));
 
@@ -653,7 +651,6 @@ bool st_init(void)
 
 bool orenmn_should_trace_this_GMBE(void) {
     uint64_t GMBE_idx = (uint64_t)g_atomic_pointer_add(&orenmn_GMBE_idx, 1);
-    g_atomic_int_inc(&orenmn_GMBE_idx_as_int);
     return (GMBE_idx & orenmn_mask_of_GMBE_block_idx) == 0;
 }
 
