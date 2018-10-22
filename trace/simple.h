@@ -12,11 +12,14 @@
 #define TRACE_SIMPLE_H
 
 void st_print_trace_file_status(FILE *stream, fprintf_function stream_printf);
-void orenmn_enable_tracing_single_event_optimization(int64_t num_of_arguments_of_event);
+void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_of_event);
 void orenmn_print_trace_results(void);
 void orenmn_set_our_buf_address(int *buf_addr);
 void orenmn_update_trace_only_user_code_GMBE(bool flag);
-bool orenmn_add_cpl_to_info_if_should_trace(uint8_t *info, uint8_t *env);
+void orenmn_set_GMBE_block_len(uint64_t block_len);
+void orenmn_set_GMBE_tracing_ratio(uint64_t tracing_ratio);
+bool orenmn_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env);
+bool orenmn_should_trace_this_GMBE(void);
 void st_set_trace_file_enabled(bool enable);
 void st_set_trace_file(const char *file);
 bool st_init(void);

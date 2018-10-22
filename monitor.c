@@ -1160,8 +1160,8 @@ static void hmp_trace_file(Monitor *mon, const QDict *qdict)
 
 static void hmp_orenmn_enable_tracing_single_event_optimization(Monitor *mon, const QDict *qdict)
 {
-    int64_t num_of_arguments_of_event = qdict_get_int(qdict,
-                                                      "num_of_arguments_of_event");
+    uint64_t num_of_arguments_of_event = qdict_get_uint(qdict,
+                                                        "num_of_arguments_of_event");
     orenmn_enable_tracing_single_event_optimization(num_of_arguments_of_event);
 }
 
@@ -1172,7 +1172,7 @@ static void hmp_orenmn_print_trace_results(Monitor *mon, const QDict *qdict)
 
 static void hmp_orenmn_set_our_buf_address(Monitor *mon, const QDict *qdict)
 {
-    uint64_t buf_addr = qdict_get_int(qdict, "addr");
+    uint64_t buf_addr = qdict_get_uint(qdict, "addr");
     orenmn_set_our_buf_address((int *)buf_addr);
 }
 
@@ -1180,6 +1180,18 @@ static void hmp_orenmn_update_trace_only_user_code_GMBE(Monitor *mon, const QDic
 {
     bool flag = qdict_get_bool(qdict, "flag");
     orenmn_update_trace_only_user_code_GMBE(flag);
+}
+
+static void hmp_orenmn_set_GMBE_block_len(Monitor *mon, const QDict *qdict)
+{
+    uint64_t block_len = qdict_get_uint(qdict, "GMBE_block_len");
+    orenmn_set_GMBE_block_len(block_len);
+}
+
+static void hmp_orenmn_set_GMBE_tracing_ratio(Monitor *mon, const QDict *qdict)
+{
+    uint64_t tracing_ratio = qdict_get_uint(qdict, "GMBE_tracing_ratio");
+    orenmn_set_GMBE_tracing_ratio(tracing_ratio);
 }
 #endif
 

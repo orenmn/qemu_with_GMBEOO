@@ -334,7 +334,7 @@ ETEXI
 
     {
         .name       = "enable_tracing_single_event_optimization",
-        .args_type  = "num_of_arguments_of_event:i",
+        .args_type  = "num_of_arguments_of_event:l",
         .params     = "num_of_arguments_of_event",
         .help       = "Exploit the special case of a single event to optimize the simple trace.",
         .cmd        = hmp_orenmn_enable_tracing_single_event_optimization,
@@ -384,7 +384,7 @@ ETEXI
         .help       = "Control whether the event GMBE traces"
                       "accesses by both user and kernel code, or only "
                       "accesses by user code.",
-        .cmd = hmp_orenmn_update_trace_only_user_code_GMBE,
+        .cmd        = hmp_orenmn_update_trace_only_user_code_GMBE,
     },
 
 STEXI
@@ -392,6 +392,40 @@ STEXI
 @findex update_trace_only_user_code_GMBE
 Control whether the event GMBE traces accesses
 by both user and kernel code, or only accesses by user code.
+ETEXI
+
+    {
+        .name       = "set_GMBE_block_len",
+        .args_type  = "GMBE_block_len:l",
+        .params     = "GMBE_block_len",
+        .help       = "Set the length of a GMBE_block, i.e. the number "
+                      " of GMBE events in a GMBE_block.",
+        .cmd        = hmp_orenmn_set_GMBE_block_len,
+    },
+
+STEXI
+@item set_GMBE_block_len
+@findex set_GMBE_block_len
+Set the length of a GMBE_block, i.e. the number
+of GMBE events in a GMBE_block.
+ETEXI
+
+    {
+        .name       = "set_GMBE_tracing_ratio",
+        .args_type  = "GMBE_tracing_ratio:l",
+        .params     = "GMBE_tracing_ratio",
+        .help       = "Set the ratio between the number of blocks "
+                      "of GMBE events we trace to the "
+                      "total number of blocks.",
+        .cmd        = hmp_orenmn_set_GMBE_tracing_ratio,
+    },
+
+STEXI
+@item set_GMBE_tracing_ratio
+@findex set_GMBE_tracing_ratio
+Set the ratio between the number of blocks
+of GMBE events we trace to the
+total number of blocks.,
 ETEXI
 #endif
 

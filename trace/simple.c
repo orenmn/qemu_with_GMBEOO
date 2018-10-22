@@ -60,6 +60,10 @@ static FILE *trace_fp;
 static char *trace_file_name;
 static bool orenmn_single_event_optimization = false;
 static bool orenmn_trace_only_user_code_GMBE = false;
+static uint64_t orenmn_mask_of_GMBE_idx_in_GMBE_block = 0;
+static volatile gint orenmn_GMBE_idx_in_GMBE_block = 0;
+static uint64_t orenmn_mask_of_GMBE_block_idx = 0;
+static volatile gint orenmn_GMBE_block_idx = 0;
 static uint32_t orenmn_trace_record_size = 0;
 static int * orenmn_our_buf_addr = 0;
 
@@ -172,6 +176,20 @@ void orenmn_set_our_buf_address(int *buf_addr) {
 
 void orenmn_update_trace_only_user_code_GMBE(bool flag) {
     orenmn_trace_only_user_code_GMBE = flag;
+}
+
+/* Assumes that block_len is a power of 2. */
+void orenmn_set_GMBE_block_len(uint64_t block_len) {
+    orenmn_mask_of_GMBE_idx_in_GMBE_block = block_len - 1;
+    orenmn_GMBE_idx_in_GMBE_block = 0;
+    orenmn_GMBE_block_idx = 0;
+}
+
+/* Assumes that tracing_ratio is a power of 2. */
+void orenmn_set_GMBE_tracing_ratio(uint64_t tracing_ratio) {
+    orenmn_mask_of_GMBE_block_idx = tracing_ratio - 1;
+    orenmn_GMBE_idx_in_GMBE_block = 0;
+    orenmn_GMBE_block_idx = 0;
 }
 
 void orenmn_print_trace_results(void)
@@ -520,7 +538,7 @@ void st_set_trace_file(const char *file)
     st_set_trace_file_enabled(true);
 }
 
-void orenmn_enable_tracing_single_event_optimization(int64_t num_of_arguments_of_event)
+void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_of_event)
 {
     uint32_t record_size = sizeof(orenmn_OptimizedTraceRecord) +
                            num_of_arguments_of_event * sizeof(uint64_t);
@@ -592,9 +610,40 @@ bool st_init(void)
     return true;
 }
 
+bool orenmn_should_trace_this_GMBE(void) {
+    /* orenmn: I worry that this while loop would really slow stuff in some
+       cases... */
+    int GMBE_idx_in_GMBE_block;
+    do {
+        GMBE_idx_in_GMBE_block = g_atomic_int_get(&orenmn_GMBE_idx_in_GMBE_block);
+        GMBE_block_idx &= orenmn_mask_of_GMBE_block_idx;
+    } while (!g_atomic_int_compare_and_exchange(&orenmn_GMBE_idx_in_GMBE_block,
+                                                GMBE_idx_in_GMBE_block,
+                                                ++GMBE_idx_in_GMBE_block));
+    GMBE_idx_in_GMBE_block &= orenmn_mask_of_GMBE_idx_in_GMBE_block;
+
+    int GMBE_block_idx;
+    int GMBE_idx_in_GMBE_block = g_atomic_int_add(&orenmn_GMBE_idx_in_GMBE_block, 1);
+    int GMBE_block_idx;
+    if (GMBE_idx_in_GMBE_block == 0) {
+        GMBE_block_idx = g_atomic_int_add(&orenmn_GMBE_block_idx, 1) + 1;
+    }
+    else {
+        GMBE_block_idx = g_atomic_int_get(&orenmn_GMBE_block_idx, 1);
+    }
+        GMBE_block_idx &= orenmn_mask_of_GMBE_block_idx;
+
+    // do {
+    //     GMBE_idx_in_GMBE_block = g_atomic_int_get(&orenmn_GMBE_idx_in_GMBE_block);
+    // } while (!g_atomic_int_compare_and_exchange(&orenmn_GMBE_idx_in_GMBE_block,
+    //                                             GMBE_idx_in_GMBE_block,
+    //                                             ++GMBE_idx_in_GMBE_block));
+    g_atomic_int_inc(&orenmn_GMBE_idx_in_GMBE_block);
+}
+
 /* Return true if should trace, according to
    orenmn_trace_only_user_code_GMBE. Otherwise, return false. */
-bool orenmn_add_cpl_to_info_if_should_trace(uint8_t *info, uint8_t *env) {
+bool orenmn_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
     // orenmn: This is CPUX86State's definition in target/i386/cpu.h,
     // which I didn't manage to include here. Thus I couldn't do
     // `((struct CPUX86State *)__cpu->env_ptr)->hflags`, and thus this very
