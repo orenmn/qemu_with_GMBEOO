@@ -59,6 +59,7 @@ static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
 static bool orenmn_single_event_optimization = false;
+static bool orenmn_trace_only_user_code_GMBE = false;
 static uint32_t orenmn_trace_record_size = 0;
 static int * orenmn_our_buf_addr = 0;
 
@@ -167,6 +168,10 @@ static void wait_for_trace_records_available(void)
 
 void orenmn_set_our_buf_address(int *buf_addr) {
     orenmn_our_buf_addr = buf_addr;
+}
+
+void orenmn_update_trace_only_user_code_GMBE(bool flag) {
+    orenmn_trace_only_user_code_GMBE = flag;
 }
 
 void orenmn_print_trace_results(void)
@@ -586,3 +591,40 @@ bool st_init(void)
     atexit(st_flush_trace_buffer);
     return true;
 }
+
+/* Return true if should trace, according to
+   orenmn_trace_only_user_code_GMBE. Otherwise, return false. */
+bool orenmn_add_cpl_to_info_if_should_trace(uint8_t *info, uint8_t *env) {
+    // orenmn: This is CPUX86State's definition in target/i386/cpu.h,
+    // which I didn't manage to include here. Thus I couldn't do
+    // `((struct CPUX86State *)__cpu->env_ptr)->hflags`, and thus this very
+    // ugly solution.
+    // Please replace this ugliness with something beautiful if you can.
+    // typedef struct CPUX86State {
+    //     /* standard registers */
+    //     target_ulong regs[CPU_NB_REGS];
+    //     target_ulong eip;
+    //     target_ulong eflags; /* eflags register. During CPU emulation, CC
+    //                         flags and DF are set to zero because they are
+    //                         stored elsewhere */
+    // 
+    //     /* emulator internal eflags handling */
+    //     target_ulong cc_dst;
+    //     target_ulong cc_src;
+    //     target_ulong cc_src2;
+    //     uint32_t cc_op;
+    //     int32_t df; /* D flag : 1 if D = 0, -1 if D = 1 */
+    //     uint32_t hflags; /* TB flags, see HF_xxx constants. These flags
+    //                         are known at translation time. */
+    int cpu_nb_regs = 16;
+    int offset_of_hflags = sizeof(unsigned long) * (cpu_nb_regs + 5) + 
+                           sizeof(uint32_t) + sizeof(int32_t);
+    uint8_t cpl = env[offset_of_hflags] & 3;
+    // cpl < 3 means that the guest is not in ring 3, i.e. not in user code.
+    if (orenmn_trace_only_user_code_GMBE && cpl < 3) {
+        return false;
+    }
+    *info |= cpl << 6;
+    return true;
+}
+

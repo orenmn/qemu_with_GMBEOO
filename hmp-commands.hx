@@ -376,6 +376,23 @@ STEXI
 @findex set_our_buf_address
 For internal use. 
 ETEXI
+
+    {
+        .name       = "update_trace_only_user_code_GMBE",
+        .args_type  = "flag:b",
+        .params     = "on|off",
+        .help       = "Control whether the event GMBE traces"
+                      "accesses by both user and kernel code, or only "
+                      "accesses by user code.",
+        .cmd = hmp_orenmn_update_trace_only_user_code_GMBE,
+    },
+
+STEXI
+@item update_trace_only_user_code_GMBE
+@findex update_trace_only_user_code_GMBE
+Control whether the event GMBE traces accesses
+by both user and kernel code, or only accesses by user code.
+ETEXI
 #endif
 
     {

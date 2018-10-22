@@ -1175,6 +1175,12 @@ static void hmp_orenmn_set_our_buf_address(Monitor *mon, const QDict *qdict)
     uint64_t buf_addr = qdict_get_int(qdict, "addr");
     orenmn_set_our_buf_address((int *)buf_addr);
 }
+
+static void hmp_orenmn_update_trace_only_user_code_GMBE(Monitor *mon, const QDict *qdict)
+{
+    bool flag = qdict_get_bool(qdict, "flag");
+    orenmn_update_trace_only_user_code_GMBE(flag);
+}
 #endif
 
 static void hmp_info_help(Monitor *mon, const QDict *qdict)
