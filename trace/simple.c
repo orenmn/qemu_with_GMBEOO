@@ -670,7 +670,12 @@ bool st_init(void)
 
 bool orenmn_should_trace_this_GMBE(void) {
     uint64_t GMBE_idx = (uint64_t)g_atomic_pointer_add(&orenmn_GMBE_idx, 1);
-    return (GMBE_idx & orenmn_mask_of_GMBE_block_idx) == 0;
+    // (uint64_t)g_atomic_pointer_add(&orenmn_GMBE_idx, 1);
+    for (int i = 0; i < 100; ++i) {
+        GMBE_idx++;
+    }
+    return false;
+    // return (GMBE_idx & orenmn_mask_of_GMBE_block_idx) == 0;
 }
 
 /* Return true if should trace, according to
