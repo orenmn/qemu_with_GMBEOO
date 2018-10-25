@@ -37,7 +37,7 @@
  * records to become available, writes them out, and then waits again.
  */
 static GMutex trace_lock;
-static GMutex orenmn_monitor_cmds_lock;
+// static GMutex orenmn_monitor_cmds_lock;
 static GCond trace_available_cond;
 static GCond trace_empty_cond;
 
@@ -55,6 +55,7 @@ static unsigned int writeout_idx;
 static volatile gint dropped_events;
 static uint32_t trace_pid;
 static FILE *trace_fp;
+static FILE *sanity_fp;
 static char *trace_file_name;
 
 static uint32_t orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file = 0;
@@ -158,7 +159,9 @@ static void flush_trace_file(bool wait)
 
     if (wait) {
         g_cond_wait(&trace_empty_cond, &trace_lock);
+        printf("flush_trace_file(true)\n");
     }
+
 
     g_mutex_unlock(&trace_lock);
 }
@@ -171,23 +174,25 @@ static void wait_for_trace_records_available(void)
         g_cond_wait(&trace_available_cond, &trace_lock);
     }
     trace_available = false;
+    assert(fwrite("1", 1, 1, sanity_fp) == 1);
     g_mutex_unlock(&trace_lock);
+    assert(fwrite("2 ", 2, 1, sanity_fp) == 1);
 }
 
 void orenmn_set_our_buf_address(int *buf_addr) {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    // g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     orenmn_our_buf_addr = buf_addr;
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 void orenmn_update_trace_only_user_code_GMBE(bool flag) {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    // g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     orenmn_trace_only_user_code_GMBE = flag;
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 /* Assumes that both log_of_GMBE_block_len and log_of_GMBE_tracing_ratio are
@@ -215,27 +220,27 @@ static void orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
 
 /* Assumes that log_of_GMBE_block_len is in [0, 64]. */
 void orenmn_set_log_of_GMBE_block_len(int log_of_GMBE_block_len) {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    // g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
         log_of_GMBE_block_len, orenmn_log_of_GMBE_tracing_ratio);
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 /* Assumes that log_of_GMBE_tracing_ratio is in [0, 64]. */
 void orenmn_set_log_of_GMBE_tracing_ratio(int log_of_GMBE_tracing_ratio) {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    // g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
         orenmn_log_of_GMBE_block_len, log_of_GMBE_tracing_ratio);
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 void orenmn_print_trace_results(void)
 {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    // g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     uint64_t num_of_GMBE_events = (uint64_t)g_atomic_pointer_get(&orenmn_GMBE_idx);
     info_report("num_of_GMBE_events: %lu", num_of_GMBE_events);
@@ -302,7 +307,7 @@ void orenmn_print_trace_results(void)
     }
     printf("\n"); // orenmn: for my own convenience. shouldn't be here.
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -349,11 +354,13 @@ static gpointer writeout_thread(gpointer opaque)
 
                 unsigned int orenmn_num_of_bytes_to_write = temp_idx - idx;
                 size_t fwrite_res;
+                // fwrite_res = 1;
                 fwrite_res = fwrite(&trace_buf[idx], orenmn_num_of_bytes_to_write,
                                     1, trace_fp);
                 if (fwrite_res != 1) {
                     error_report("\nfwrite error! file: %s, line: %u\n\n",
                                  __FILE__, __LINE__);
+                    exit(1);
                 }
                 // Instead of calling `clear_buffer_range`
                 memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
@@ -367,16 +374,18 @@ static gpointer writeout_thread(gpointer opaque)
 
             if (g_atomic_int_get(&dropped_events)) {
                 dropped.rec.event = DROPPED_EVENT_ID,
-                // dropped.rec.timestamp_ns = get_clock();
+                dropped.rec.timestamp_ns = get_clock();
                 dropped.rec.length = sizeof(TraceRecord) + sizeof(uint64_t);
-                // dropped.rec.pid = trace_pid;
+                dropped.rec.pid = trace_pid;
                 do {
                     dropped_count = g_atomic_int_get(&dropped_events);
                 } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                             dropped_count, 0));
                 dropped.rec.arguments[0] = dropped_count;
+                // if (false){
                 unused = fwrite(&type, sizeof(type), 1, trace_fp);
                 unused = fwrite(&dropped.rec, dropped.rec.length, 1, trace_fp);
+                // }
             }
 
             while (get_trace_record(idx, &recordptr)) {
@@ -551,6 +560,10 @@ void st_set_trace_file_enabled(bool enable)
         if (!trace_fp) {
             return;
         }
+        sanity_fp = fopen("sanity.txt", "w");
+        if (!sanity_fp) {
+            return;
+        }
 
         if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
             st_write_event_mapping() < 0) {
@@ -592,7 +605,7 @@ void st_set_trace_file(const char *file)
 
 void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_of_event)
 {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    // g_mutex_lock(&orenmn_monitor_cmds_lock);
     
     uint32_t record_size = sizeof(orenmn_OptimizedTraceRecord) +
                            num_of_arguments_of_event * sizeof(uint64_t);
@@ -614,7 +627,7 @@ void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_o
     g_atomic_int_set(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled, 0);
     g_atomic_pointer_set(&orenmn_GMBE_idx, 0);
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
