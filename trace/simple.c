@@ -45,7 +45,7 @@ static bool trace_available;
 static bool trace_writeout_enabled;
 
 enum {
-    TRACE_BUF_LEN = 4096 * 72,
+    TRACE_BUF_LEN = 4096 * 64,
     TRACE_BUF_FLUSH_THRESHOLD = TRACE_BUF_LEN / 4,
 };
 
@@ -87,6 +87,7 @@ typedef struct {
 /* * orenmn: Trace buffer entry in case of single_event_optimization */
 typedef struct {
     uint64_t event; /* event ID value */
+    uint64_t padding; /* because the size of the struct must be a power of 2 */
     uint64_t arguments[];
 } orenmn_OptimizedTraceRecord;
 
@@ -174,9 +175,7 @@ static void wait_for_trace_records_available(void)
         g_cond_wait(&trace_available_cond, &trace_lock);
     }
     trace_available = false;
-    assert(fwrite("1", 1, 1, sanity_fp) == 1);
     g_mutex_unlock(&trace_lock);
-    assert(fwrite("2 ", 2, 1, sanity_fp) == 1);
 }
 
 void orenmn_set_our_buf_address(int *buf_addr) {
@@ -329,6 +328,7 @@ static gpointer writeout_thread(gpointer opaque)
             /* Just let dropped_events count the number dropped events. */
 
             uint32_t orenmn_record_size = orenmn_SEO_trace_record_size;
+            assert(idx % orenmn_record_size == 0);
 
             /* We can't call fwrite once for both the end and the beginning of
                trace_buf, so we add this while loop, to prevent a case in which
@@ -363,6 +363,12 @@ static gpointer writeout_thread(gpointer opaque)
                     exit(1);
                 }
                 // Instead of calling `clear_buffer_range`
+                // fprintf(sanity_fp, "%p,orenmn_num_of_bytes_to_write\n", &trace_buf[idx]
+                //                errno);
+                if (idx + orenmn_num_of_bytes_to_write > TRACE_BUF_LEN) {
+                    fprintf(sanity_fp, "%p,%u\n", &trace_buf[idx], orenmn_num_of_bytes_to_write);
+                }
+                assert(idx + orenmn_num_of_bytes_to_write <= TRACE_BUF_LEN);
                 memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
 
                 writeout_idx += orenmn_num_of_bytes_to_write;
@@ -667,6 +673,11 @@ static GThread *trace_thread_create(GThreadFunc fn)
 
 bool st_init(void)
 {
+    /* orenmn: TRACE_BUF_LEN must be a divisor of 1 << 32, because we do
+       `idx = writeout_idx % TRACE_BUF_LEN;`, and `writeout_idx` might
+       overflow. */
+    assert(0x100000000 % TRACE_BUF_LEN == 0);
+
     GThread *thread;
 
     trace_pid = getpid();
