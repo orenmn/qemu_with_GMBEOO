@@ -59,8 +59,8 @@ static char *trace_file_name;
 
 static uint32_t orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file = 0;
 // SEO = Single Event Optimization
-static volatile gint orenmn_SEO_num_of_events_written_to_trace_file = 0;
-static volatile gint orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled = 0;
+static volatile gint GMBEOO_num_of_events_written_to_trace_file = 0;
+static volatile gint num_of_events_written_to_trace_buf_since_GMBEOO_enabled = 0;
 static bool orenmn_single_event_optimization = false;
 static bool orenmn_trace_only_user_code_GMBE = false;
 static int orenmn_log_of_GMBE_block_len = 0;
@@ -88,7 +88,7 @@ typedef struct {
     uint64_t event; /* event ID value */
     uint64_t padding; /* because the size of the struct must be a power of 2 */
     uint64_t arguments[];
-} orenmn_OptimizedTraceRecord;
+} GMBEOO_TraceRecord;
 
 typedef struct {
     uint64_t header_event_id; /* HEADER_EVENT_ID */
@@ -244,23 +244,23 @@ void orenmn_print_trace_results(void)
     if (orenmn_single_event_optimization) {
         unsigned int SEO_num_of_events_written_to_trace_buf =
             (uint32_t)g_atomic_int_get(&trace_idx) / orenmn_SEO_trace_record_size;
-        if (g_atomic_int_get(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled) !=
+        if (g_atomic_int_get(&num_of_events_written_to_trace_buf_since_GMBEOO_enabled) !=
             SEO_num_of_events_written_to_trace_buf)
         {
             error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
                          "SEO_num_of_events_written_to_trace_buf (%u) != num of events "
-                         "orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled (%d). "
+                         "num_of_events_written_to_trace_buf_since_GMBEOO_enabled (%d). "
                          "smells like a bug.",
                          SEO_num_of_events_written_to_trace_buf,
-                         g_atomic_int_get(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled));
+                         g_atomic_int_get(&num_of_events_written_to_trace_buf_since_GMBEOO_enabled));
         }
         unsigned int num_of_events_waiting_in_trace_buf = 0;
         for (unsigned int i = 0; i < TRACE_BUF_LEN; i += orenmn_SEO_trace_record_size) {
-            if (((orenmn_OptimizedTraceRecord *)&trace_buf[i])->event &
+            if (((GMBEOO_TraceRecord *)&trace_buf[i])->event &
                 TRACE_RECORD_VALID)
             {
                 uint64_t virt_addr =
-                    ((orenmn_OptimizedTraceRecord *)&trace_buf[i])->arguments[0];
+                    ((GMBEOO_TraceRecord *)&trace_buf[i])->arguments[0];
                 if (virt_addr >= (uint64_t)orenmn_our_buf_addr &&
                     virt_addr < (uint64_t)orenmn_our_buf_addr + 20000 * sizeof(int))
                 {
@@ -274,13 +274,13 @@ void orenmn_print_trace_results(void)
                     num_of_events_waiting_in_trace_buf);
         unsigned int num_of_missing_events =
             SEO_num_of_events_written_to_trace_buf -
-            g_atomic_int_get(&orenmn_SEO_num_of_events_written_to_trace_file) -
+            g_atomic_int_get(&GMBEOO_num_of_events_written_to_trace_file) -
             num_of_events_waiting_in_trace_buf;
         if (num_of_missing_events != 0) {
             error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
                          "num_of_missing_events (i.e. "
                          "SEO_num_of_events_written_to_trace_buf - "
-                         "orenmn_SEO_num_of_events_written_to_trace_file - "
+                         "GMBEOO_num_of_events_written_to_trace_file - "
                          "num_of_events_waiting_in_trace_buf): %u.",
                          num_of_missing_events);
         }
@@ -357,9 +357,9 @@ static gpointer writeout_thread(gpointer opaque)
 
 
                 while (temp_idx < TRACE_BUF_LEN &&
-                       (((orenmn_OptimizedTraceRecord *)&trace_buf[temp_idx])->event &
+                       (((GMBEOO_TraceRecord *)&trace_buf[temp_idx])->event &
                         TRACE_RECORD_VALID)) {
-                    g_atomic_int_inc(&orenmn_SEO_num_of_events_written_to_trace_file);
+                    g_atomic_int_inc(&GMBEOO_num_of_events_written_to_trace_file);
                     temp_idx += orenmn_record_size;
                 }
 
@@ -431,13 +431,44 @@ void trace_record_write_str(TraceBufferRecord *rec, const char *s, uint32_t slen
     rec->rec_off = write_to_buffer(rec->rec_off, (void*)s, slen);
 }
 
+void GMBEOO_write_trace_record(uint64_t virt_addr, uint8_t info)
+{
+    unsigned int idx, old_idx, new_idx;
+
+    do {
+        old_idx = g_atomic_int_get(&trace_idx);
+        smp_rmb();
+        new_idx = old_idx + sizeof(GMBEOO_TraceRecord);
+
+        if (new_idx - writeout_idx > TRACE_BUF_LEN) {
+            /* Trace Buffer Full, Event dropped ! */
+            g_atomic_int_inc(&dropped_events);
+            return;
+        }
+    } while (!g_atomic_int_compare_and_exchange(&trace_idx, old_idx, new_idx));
+
+    idx = old_idx % TRACE_BUF_LEN;
+    assert(idx + sizeof(GMBEOO_TraceRecord) <= TRACE_BUF_LEN);
+    
+    ((GMBEOO_TraceRecord *)&(trace_buf[idx]))->virt_addr = virt_addr;
+
+    smp_wmb(); /* write barrier before marking as valid */
+    ((GMBEOO_TraceRecord *)&(trace_buf[idx]))->info = info | TRACE_RECORD_VALID;
+
+    g_atomic_int_inc(&num_of_events_written_to_trace_buf_since_GMBEOO_enabled);
+    if (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx)
+        > TRACE_BUF_FLUSH_THRESHOLD) {
+        flush_trace_file(false);
+    }
+}
+
 int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
 {
     unsigned int idx, rec_off, old_idx, new_idx;
     uint32_t rec_len;
     if (orenmn_single_event_optimization) {
         rec_len = orenmn_SEO_trace_record_size;
-        assert(rec_len == sizeof(orenmn_OptimizedTraceRecord) + datasize);
+        assert(rec_len == sizeof(GMBEOO_TraceRecord) + datasize);
     }
     else {
         rec_len = sizeof(TraceRecord) + datasize;
@@ -469,7 +500,7 @@ int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
 
     rec->tbuf_idx = idx;
     if (orenmn_single_event_optimization) {
-        rec->rec_off  = (idx + sizeof(orenmn_OptimizedTraceRecord)) % TRACE_BUF_LEN;
+        rec->rec_off  = (idx + sizeof(GMBEOO_TraceRecord)) % TRACE_BUF_LEN;
     }
     else {
         rec->rec_off  = (idx + sizeof(TraceRecord)) % TRACE_BUF_LEN;
@@ -505,11 +536,11 @@ static unsigned int write_to_buffer(unsigned int idx, void *dataptr, size_t size
 void trace_record_finish(TraceBufferRecord *rec)
 {
     if (orenmn_single_event_optimization) {
-        orenmn_OptimizedTraceRecord record;
-        read_from_buffer(rec->tbuf_idx, &record, sizeof(orenmn_OptimizedTraceRecord));
+        GMBEOO_TraceRecord record;
+        read_from_buffer(rec->tbuf_idx, &record, sizeof(GMBEOO_TraceRecord));
         smp_wmb(); /* write barrier before marking as valid */
         record.event |= TRACE_RECORD_VALID;
-        write_to_buffer(rec->tbuf_idx, &record, sizeof(orenmn_OptimizedTraceRecord));
+        write_to_buffer(rec->tbuf_idx, &record, sizeof(GMBEOO_TraceRecord));
     }
     else {
         TraceRecord record;
@@ -519,7 +550,7 @@ void trace_record_finish(TraceBufferRecord *rec)
         write_to_buffer(rec->tbuf_idx, &record, sizeof(TraceRecord));
     }
 
-    g_atomic_int_inc(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled);
+    g_atomic_int_inc(&num_of_events_written_to_trace_buf_since_GMBEOO_enabled);
     if (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx)
         > TRACE_BUF_FLUSH_THRESHOLD) {
         flush_trace_file(false);
@@ -618,7 +649,7 @@ void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_o
 {
     g_mutex_lock(&orenmn_monitor_cmds_lock);
     
-    uint32_t record_size = sizeof(orenmn_OptimizedTraceRecord) +
+    uint32_t record_size = sizeof(GMBEOO_TraceRecord) +
                            num_of_arguments_of_event * sizeof(uint64_t);
     assert(record_size > 0);
     if (TRACE_BUF_LEN % record_size != 0 || !is_power_of_2(record_size)) {
@@ -636,7 +667,7 @@ void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_o
     info_report("    single_event_optimization is on. "
                 "trace record size: %u", orenmn_SEO_trace_record_size);
 
-    g_atomic_int_set(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled, 0);
+    g_atomic_int_set(&num_of_events_written_to_trace_buf_since_GMBEOO_enabled, 0);
     g_atomic_pointer_set(&orenmn_GMBE_idx, 0);
 
     g_mutex_unlock(&orenmn_monitor_cmds_lock);
