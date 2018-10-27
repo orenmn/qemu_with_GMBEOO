@@ -37,7 +37,7 @@
  * records to become available, writes them out, and then waits again.
  */
 static GMutex trace_lock;
-// static GMutex orenmn_monitor_cmds_lock;
+static GMutex orenmn_monitor_cmds_lock;
 static GCond trace_available_cond;
 static GCond trace_empty_cond;
 
@@ -55,7 +55,6 @@ static unsigned int writeout_idx;
 static volatile gint dropped_events;
 static uint32_t trace_pid;
 static FILE *trace_fp;
-static FILE *sanity_fp;
 static char *trace_file_name;
 
 static uint32_t orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file = 0;
@@ -160,9 +159,7 @@ static void flush_trace_file(bool wait)
 
     if (wait) {
         g_cond_wait(&trace_empty_cond, &trace_lock);
-        printf("flush_trace_file(true)\n");
     }
-
 
     g_mutex_unlock(&trace_lock);
 }
@@ -179,19 +176,19 @@ static void wait_for_trace_records_available(void)
 }
 
 void orenmn_set_our_buf_address(int *buf_addr) {
-    // g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     orenmn_our_buf_addr = buf_addr;
 
-    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 void orenmn_update_trace_only_user_code_GMBE(bool flag) {
-    // g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     orenmn_trace_only_user_code_GMBE = flag;
 
-    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 /* Assumes that both log_of_GMBE_block_len and log_of_GMBE_tracing_ratio are
@@ -219,27 +216,27 @@ static void orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
 
 /* Assumes that log_of_GMBE_block_len is in [0, 64]. */
 void orenmn_set_log_of_GMBE_block_len(int log_of_GMBE_block_len) {
-    // g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
         log_of_GMBE_block_len, orenmn_log_of_GMBE_tracing_ratio);
 
-    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 /* Assumes that log_of_GMBE_tracing_ratio is in [0, 64]. */
 void orenmn_set_log_of_GMBE_tracing_ratio(int log_of_GMBE_tracing_ratio) {
-    // g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
         orenmn_log_of_GMBE_block_len, log_of_GMBE_tracing_ratio);
 
-    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 void orenmn_print_trace_results(void)
 {
-    // g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
 
     uint64_t num_of_GMBE_events = (uint64_t)g_atomic_pointer_get(&orenmn_GMBE_idx);
     info_report("num_of_GMBE_events: %lu", num_of_GMBE_events);
@@ -306,7 +303,7 @@ void orenmn_print_trace_results(void)
     }
     printf("\n"); // orenmn: for my own convenience. shouldn't be here.
 
-    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -330,11 +327,18 @@ static gpointer writeout_thread(gpointer opaque)
             uint32_t orenmn_record_size = orenmn_SEO_trace_record_size;
             assert(idx % orenmn_record_size == 0);
 
+            uint32_t i = 0;
             /* We can't call fwrite once for both the end and the beginning of
                trace_buf, so we add this while loop, to prevent a case in which
                TRACE_BUF_FLUSH_THRESHOLD was reached, but there is only a small
                number of trace records at the end of trace_buf, and many at its
-               beginning. (recall that trace_buf is a cyclic buffer.) */
+               beginning. (recall that trace_buf is a cyclic buffer.)
+               This while also helps in the case that one of the next
+               TRACE_BUF_FLUSH_THRESHOLD records to write is still invalid.
+               We would loop here until some rogue record is
+
+               */
+
             while (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx) >
                    TRACE_BUF_FLUSH_THRESHOLD) {
                 /* Find the first invalid trace record. We would write all
@@ -345,6 +349,13 @@ static gpointer writeout_thread(gpointer opaque)
                    `TRACE_BUF_LEN % orenmn_SEO_trace_record_size == 0`.
                    This also guarantees that when the loop ends,
                    `temp_idx <= TRACE_BUF_LEN`. */
+                if (i++ >= 2) {
+                    error_report("i... file: %s, line: %u\n\n",
+                                 __FILE__, __LINE__);
+                    exit(1);
+                }
+
+
                 while (temp_idx < TRACE_BUF_LEN &&
                        (((orenmn_OptimizedTraceRecord *)&trace_buf[temp_idx])->event &
                         TRACE_RECORD_VALID)) {
@@ -354,20 +365,16 @@ static gpointer writeout_thread(gpointer opaque)
 
                 unsigned int orenmn_num_of_bytes_to_write = temp_idx - idx;
                 size_t fwrite_res;
-                // fwrite_res = 1;
                 fwrite_res = fwrite(&trace_buf[idx], orenmn_num_of_bytes_to_write,
                                     1, trace_fp);
                 if (fwrite_res != 1) {
-                    error_report("\nfwrite error! file: %s, line: %u\n\n",
-                                 __FILE__, __LINE__);
+                    error_report("\nfwrite error! file: %s, line: %u, "
+                                 "ferror: %d, feof: %d, errno: %d\n\n",
+                                 __FILE__, __LINE__,
+                                 ferror(trace_fp), feof(trace_fp), errno);
                     exit(1);
                 }
                 // Instead of calling `clear_buffer_range`
-                // fprintf(sanity_fp, "%p,orenmn_num_of_bytes_to_write\n", &trace_buf[idx]
-                //                errno);
-                if (idx + orenmn_num_of_bytes_to_write > TRACE_BUF_LEN) {
-                    fprintf(sanity_fp, "%p,%u\n", &trace_buf[idx], orenmn_num_of_bytes_to_write);
-                }
                 assert(idx + orenmn_num_of_bytes_to_write <= TRACE_BUF_LEN);
                 memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
 
@@ -388,10 +395,8 @@ static gpointer writeout_thread(gpointer opaque)
                 } while (!g_atomic_int_compare_and_exchange(&dropped_events,
                                                             dropped_count, 0));
                 dropped.rec.arguments[0] = dropped_count;
-                // if (false){
                 unused = fwrite(&type, sizeof(type), 1, trace_fp);
                 unused = fwrite(&dropped.rec, dropped.rec.length, 1, trace_fp);
-                // }
             }
 
             while (get_trace_record(idx, &recordptr)) {
@@ -566,10 +571,6 @@ void st_set_trace_file_enabled(bool enable)
         if (!trace_fp) {
             return;
         }
-        sanity_fp = fopen("sanity.txt", "w");
-        if (!sanity_fp) {
-            return;
-        }
 
         if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
             st_write_event_mapping() < 0) {
@@ -609,31 +610,36 @@ void st_set_trace_file(const char *file)
     st_set_trace_file_enabled(true);
 }
 
+// static bool is_power_of_2(uint32_t num) {
+//     return (num & (num - 1)) == 0;
+// }
+
 void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_of_event)
 {
-    // g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&orenmn_monitor_cmds_lock);
     
     uint32_t record_size = sizeof(orenmn_OptimizedTraceRecord) +
                            num_of_arguments_of_event * sizeof(uint64_t);
     assert(record_size > 0);
-    if (TRACE_BUF_LEN % record_size != 0) {
-        error_report("    single_event_optimization requires that TRACE_BUF_LEN "
-                     "is a multiple of the size of a trace record (%u). "
-                     "Unfortunately, TRACE_BUF_LEN %% record_size == %u. "
+    if (TRACE_BUF_LEN % record_size != 0 || !is_power_of_2(record_size)) {
+        error_report("    single_event_optimization requires that "
+                     "TRACE_BUF_LEN (0x%x) is a multiple of the size of a "
+                     "trace record (0x%x), and also that the size of a trace "
+                     "record is a power of two.\n"
                      "If you wish to use single_event_optimization, recompile "
-                     "qemu so that TRACE_BUF_LEN fits the size of a trace "
-                     "record.", record_size, TRACE_BUF_LEN % record_size);
+                     "QEMU so that these requirements are met.",
+                     TRACE_BUF_LEN, record_size);
+        exit(1);
     }
-    else {
-        orenmn_single_event_optimization = true;
-        orenmn_SEO_trace_record_size = record_size;
-        info_report("    single_event_optimization is on. "
-                    "trace record size: %u", orenmn_SEO_trace_record_size);
-    }
+    orenmn_single_event_optimization = true;
+    orenmn_SEO_trace_record_size = record_size;
+    info_report("    single_event_optimization is on. "
+                "trace record size: %u", orenmn_SEO_trace_record_size);
+
     g_atomic_int_set(&orenmn_num_of_events_written_to_trace_buf_since_SEO_enabled, 0);
     g_atomic_pointer_set(&orenmn_GMBE_idx, 0);
 
-    // g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&orenmn_monitor_cmds_lock);
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
@@ -673,10 +679,11 @@ static GThread *trace_thread_create(GThreadFunc fn)
 
 bool st_init(void)
 {
-    /* orenmn: TRACE_BUF_LEN must be a divisor of 1 << 32, because we do
+    /* orenmn: TRACE_BUF_LEN must be a divisor of 1 << 32, i.e. a power of 2,
+       because we (and also QEMU's original code) do
        `idx = writeout_idx % TRACE_BUF_LEN;`, and `writeout_idx` might
        overflow. */
-    assert(0x100000000 % TRACE_BUF_LEN == 0);
+    assert(is_power_of_2(TRACE_BUF_LEN));
 
     GThread *thread;
 
