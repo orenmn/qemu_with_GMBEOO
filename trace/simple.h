@@ -13,6 +13,8 @@
 
 void st_print_trace_file_status(FILE *stream, fprintf_function stream_printf);
 void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_of_event);
+bool is_GMBEOO_enabled(void);
+void GMBEOO_write_trace_record(uint64_t virt_addr, uint8_t info);
 void orenmn_print_trace_results(void);
 void orenmn_set_our_buf_address(int *buf_addr);
 void orenmn_update_trace_only_user_code_GMBE(bool flag);

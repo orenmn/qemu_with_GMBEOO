@@ -68,8 +68,6 @@ def generate_c(event, group):
             strsizeinfo = "4 + arg%s_len" % name
             sizes.append(strsizeinfo)
         else:
-            if event.name == 'guest_mem_before_exec' and name == '__cpu':
-                continue
             sizes.append("8")
     sizestr = " + ".join(sizes)
     if len(event.args) == 0:
@@ -84,13 +82,13 @@ def generate_c(event, group):
 
     if event.name == 'guest_mem_before_exec':
         out('',
+            '    if (is_GMBEOO_enabled()) {',
             '#ifdef __x86_64__',
-            '    if (!orenmn_add_cpl_to_GMBE_info_if_should_trace(&info, (uint8_t *)__cpu->env_ptr)) {',
-            '        return;',
-            '    }',
+            '        if (!orenmn_add_cpl_to_GMBE_info_if_should_trace(&info, (uint8_t *)__cpu->env_ptr)) {',
+            '            return;',
+            '        }',
             '#endif',
-            '',
-            '    if (!orenmn_should_trace_this_GMBE()) {',
+            '        GMBEOO_write_trace_record(vaddr, info);',
             '        return;',
             '    }',
             )
@@ -109,8 +107,6 @@ def generate_c(event, group):
 
     if len(event.args) > 0:
         for type_, name in event.args:
-            if event.name == 'guest_mem_before_exec' and name == '__cpu':
-                continue
 
             # string
             if is_string(type_):
