@@ -333,20 +333,18 @@ Open, close, or flush the trace file.  If no argument is given, the status of th
 ETEXI
 
     {
-        .name       = "enable_tracing_single_event_optimization",
-        .args_type  = "num_of_arguments_of_event:l",
-        .params     = "num_of_arguments_of_event",
-        .help       = "Exploit the special case of a single event to optimize the simple trace.",
-        .cmd        = hmp_orenmn_enable_tracing_single_event_optimization,
+        .name       = "enable_GMBEOO",
+        .args_type  = "",
+        .params     = "",
+        .help       = "Exploit the special case of tracing the GMBE event only, and optimize the simple trace.",
+        .cmd        = hmp_enable_GMBEOO,
     },
 
 STEXI
-@item enable_single_event_optimization @var{num_of_arguments_of_event}
-@findex enable_single_event_optimization
-After enabling, qemu assumes that only a single event is on, so there is
-no need to add a type (i.e. mapping/event) for each record, and writing
-to the trace file can be done in chunks (as all records are of the same
-size).
+@item enable_GMBEOO @var{num_of_arguments_of_event}
+@findex enable_GMBEOO
+After enabling, qemu assumes that only a the GMBE event is on, and so the
+tracing can be optimized in various ways.
 ETEXI
 
     {

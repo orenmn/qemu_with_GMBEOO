@@ -12,7 +12,7 @@
 #define TRACE_SIMPLE_H
 
 void st_print_trace_file_status(FILE *stream, fprintf_function stream_printf);
-void orenmn_enable_tracing_single_event_optimization(uint64_t num_of_arguments_of_event);
+void enable_GMBEOO(void);
 bool is_GMBEOO_enabled(void);
 void GMBEOO_write_trace_record(uint64_t virt_addr, uint8_t info);
 void orenmn_print_trace_results(void);
