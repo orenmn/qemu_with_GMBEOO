@@ -202,10 +202,10 @@ static void GMBEOO_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
                                     log_of_GMBE_block_len;
     g_atomic_pointer_set(&GMBEOO_GMBE_idx, 0);
 
-    info_report("GMBEOO_mask_of_GMBE_idx_in_GMBE_block: %016lx\n"
-                "GMBEOO_mask_of_GMBE_block_idx: %016lx",
-                GMBEOO_mask_of_GMBE_idx_in_GMBE_block,
-                GMBEOO_mask_of_GMBE_block_idx);
+    printf("GMBEOO_mask_of_GMBE_idx_in_GMBE_block: __%016lx__\n"
+           "GMBEOO_mask_of_GMBE_block_idx: __%016lx__\n",
+           GMBEOO_mask_of_GMBE_idx_in_GMBE_block,
+           GMBEOO_mask_of_GMBE_block_idx);
 }
 
 /* Assumes that log_of_GMBE_block_len is in [0, 64]. */
@@ -241,7 +241,7 @@ void GMBEOO_print_trace_info(void)
 
     printf("-----begin trace info-----\n"
            "Caution! All of the info is assuming there weren't any integer "
-           "overflow in the related counters, which is quite probable if you "
+           "overflows in the related counters, which is quite probable if you "
            "collected traces for a long time.\n");
 
     if (is_GMBEOO_enabled()) {
