@@ -59,13 +59,13 @@ static char *trace_file_name;
 
 static unsigned int GMBEOO_num_of_events_written_to_trace_file = 0;
 static bool GMBEOO_enabled = false;
-static bool GMBEOO_trace_only_user_code_GMBE = false;
+static bool GMBEOO_trace_only_CPL3_code_GMBE = false;
 static int GMBEOO_log_of_GMBE_block_len = 0;
 static int GMBEOO_log_of_GMBE_tracing_ratio = 0;
 static volatile gpointer GMBEOO_GMBE_idx = 0;
 static uint64_t GMBEOO_mask_of_GMBE_idx_in_GMBE_block = 0;
 static uint64_t GMBEOO_mask_of_GMBE_block_idx = 0;
-static int * GMBEOO_our_buf_addr = 0;
+static bool GMBEOO_was_enabled_probably_before_any_event_traced = false;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
 #define TRACE_RECORD_TYPE_EVENT   1
@@ -177,20 +177,11 @@ static void wait_for_trace_records_available(void)
     g_mutex_unlock(&trace_lock);
 }
 
-void GMBEOO_set_our_buf_address(int *buf_addr)
+void GMBEOO_update_trace_only_CPL3_code_GMBE(bool flag)
 {
     g_mutex_lock(&GMBEOO_monitor_cmds_lock);
 
-    GMBEOO_our_buf_addr = buf_addr;
-
-    g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
-}
-
-void GMBEOO_update_trace_only_user_code_GMBE(bool flag)
-{
-    g_mutex_lock(&GMBEOO_monitor_cmds_lock);
-
-    GMBEOO_trace_only_user_code_GMBE = flag;
+    GMBEOO_trace_only_CPL3_code_GMBE = flag;
 
     g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
@@ -245,17 +236,16 @@ bool is_GMBEOO_enabled(void)
     return GMBEOO_enabled;
 }
 
-void GMBEOO_print_trace_results(void)
+void GMBEOO_print_trace_info(void)
 {
     g_mutex_lock(&GMBEOO_monitor_cmds_lock);
 
-    printf("-----begin trace results-----\n");
-    uint64_t num_of_GMBE_events = (uint64_t)g_atomic_pointer_get(&GMBEOO_GMBE_idx);
-    printf("num_of_GMBE_events: %lu", num_of_GMBE_events);
+    printf("-----begin trace info-----\n"
+           "Caution! All of the info is assuming there weren't any integer "
+           "overflow in the related counters, which is quite probable if you "
+           "collected traces for a long time.\n");
 
     if (is_GMBEOO_enabled()) {
-        unsigned int num_of_events_written_to_trace_buf =
-            (uint32_t)g_atomic_int_get(&trace_idx) / sizeof(GMBEOO_TraceRecord);
         unsigned int num_of_events_waiting_in_trace_buf = 0;
         for (unsigned int i = 0; i < TRACE_BUF_LEN; i += sizeof(GMBEOO_TraceRecord)) {
             if (*((uint64_t *)&trace_buf[i]) & TRACE_RECORD_VALID)
@@ -266,39 +256,63 @@ void GMBEOO_print_trace_results(void)
         if (num_of_events_waiting_in_trace_buf != 0) {
             error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
                          "num_of_events_waiting_in_trace_buf: %u\n"
-                         "This might have happened if you didn't execute "
-                         "`trace-file flush` twice after stopping the guest. "
-                         "(Though even if you did, I guess there might be "
-                         "invalid records, but I guess this is extremely "
+                         "The cause for this might be that you didn't execute "
+                         "`trace-file flush` twice after stopping the tracing "
+                         "and stopping the guest. "
+                         "(Though even if you did, the cause might be "
+                         "invalid records, but I guess this is highly "
                          "improbable.)",
                          num_of_events_waiting_in_trace_buf);
         }
-        unsigned int num_of_missing_events =
-            num_of_events_written_to_trace_buf -
-            GMBEOO_num_of_events_written_to_trace_file;
-        if (num_of_missing_events != 0) {
-            error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
-                         "num_of_missing_events (i.e. "
-                         "num_of_events_written_to_trace_buf - "
-                         "GMBEOO_num_of_events_written_to_trace_file): %u.",
-                         num_of_missing_events);
-        }
-        printf("num_of_events_written_to_trace_buf: %d",
-               num_of_events_written_to_trace_buf);
-        if (num_of_events_written_to_trace_buf != 0) {
-            printf("num_of_GMBE_events / "
-                   "num_of_events_written_to_trace_buf: %lf",
-                   (double)num_of_GMBE_events /
+        
+        uint64_t num_of_GMBE_events_since_enabling_GMBEOO =
+            (uint64_t)g_atomic_pointer_get(&GMBEOO_GMBE_idx);
+        printf("num_of_GMBE_events_since_enabling_GMBEOO: %lu\n"
+               "This includes GMBE events that weren't traced because of the "
+               "tracing ratio, but in case of --trace_only_CPL3_code_GMBE, "
+               "this doesn't include GMBE events of non-CPL3 code.\n",
+               num_of_GMBE_events_since_enabling_GMBEOO);
+
+        if (GMBEOO_was_enabled_probably_before_any_event_traced) {
+            unsigned int num_of_events_written_to_trace_buf =
+                (uint32_t)g_atomic_int_get(&trace_idx) / sizeof(GMBEOO_TraceRecord);
+            printf("num_of_events_written_to_trace_buf: %d\n",
                    num_of_events_written_to_trace_buf);
+            unsigned int num_of_missing_events =
+                num_of_events_written_to_trace_buf -
+                GMBEOO_num_of_events_written_to_trace_file -
+                num_of_events_waiting_in_trace_buf;
+            if (num_of_missing_events != 0) {
+                error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
+                             "num_of_missing_events (i.e. "
+                             "num_of_events_written_to_trace_buf - "
+                             "num_of_events_written_to_trace_file - "
+                             "num_of_events_waiting_in_trace_buf): %u.",
+                             num_of_missing_events);
+            }
+            if (num_of_events_written_to_trace_buf != 0) {
+                double actual_tracing_ratio = 
+                    (double)num_of_GMBE_events_since_enabling_GMBEOO /
+                    num_of_events_written_to_trace_buf;
+                printf("actual_tracing_ratio (i.e. "
+                       "num_of_GMBE_events_since_enabling_GMBEOO / "
+                       "num_of_events_written_to_trace_buf): %lf\n",
+                       actual_tracing_ratio);
+            }
+        }
+        else {
+            warn_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
+                        "Some info isn't available because when GMBEOO was "
+                        "enabled, some events have already been traced.");
         }
     }
 
     int num_of_dropped_events = g_atomic_int_get(&dropped_events);
     if (num_of_dropped_events != 0) {
         warn_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
-                    "%d events were dropped.", num_of_dropped_events);
+                    "num_of_dropped_events: %d", num_of_dropped_events);
     }
-    printf("-----end trace results-----\n\n");
+    printf("-----end trace info-----\n");
 
     g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
@@ -584,11 +598,13 @@ void st_set_trace_file_enabled(bool enable)
             return;
         }
 
-        if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
-            st_write_event_mapping() < 0) {
-            fclose(trace_fp);
-            trace_fp = NULL;
-            return;
+        if (!is_GMBEOO_enabled()) {
+            if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
+                st_write_event_mapping() < 0) {
+                fclose(trace_fp);
+                trace_fp = NULL;
+                return;
+            }
         }
 
         /* Resume trace writeout */
@@ -642,6 +658,10 @@ void enable_GMBEOO(void)
     info_report("GMBEOO is on.\n"
                 "trace record size: %u",
                 (unsigned int)sizeof(GMBEOO_TraceRecord));
+
+    // "probably" because there might have been an integer overflow.
+    GMBEOO_was_enabled_probably_before_any_event_traced = 
+        g_atomic_int_get(&trace_idx) == 0;
 
     g_atomic_pointer_set(&GMBEOO_GMBE_idx, 0);
 
@@ -707,7 +727,7 @@ bool st_init(void)
 
 
 /* Return true if should trace, according to
-   GMBEOO_trace_only_user_code_GMBE. Otherwise, return false. */
+   GMBEOO_trace_only_CPL3_code_GMBE. Otherwise, return false. */
 bool GMBEOO_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
     // GMBEOO: This is CPUX86State's definition in target/i386/cpu.h,
     // which I didn't manage to include here. Thus I couldn't do
@@ -740,7 +760,7 @@ bool GMBEOO_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
                            sizeof(uint32_t) + sizeof(int32_t);
     uint8_t cpl = env[offset_of_hflags] & 3;
     // cpl < 3 means that the guest is not in ring 3, i.e. not in user code.
-    if (GMBEOO_trace_only_user_code_GMBE && cpl < 3) {
+    if (GMBEOO_trace_only_CPL3_code_GMBE && cpl < 3) {
         return false;
     }
     *info |= cpl << 6;

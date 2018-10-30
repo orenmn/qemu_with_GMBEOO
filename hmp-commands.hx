@@ -348,46 +348,32 @@ tracing can be optimized in various ways.
 ETEXI
 
     {
-        .name       = "print_trace_results",
+        .name       = "print_trace_info",
         .args_type  = "",
         .params     = "",
         .help       = "For internal use.",
-        .cmd        = hmp_GMBEOO_print_trace_results,
+        .cmd        = hmp_GMBEOO_print_trace_info,
     },
 
 STEXI
-@item print_trace_results
-@findex print_trace_results
+@item print_trace_info
+@findex print_trace_info
 For internal use. 
 ETEXI
 
     {
-        .name       = "set_our_buf_address",
-        .args_type  = "addr:l",
-        .params     = "addr",
-        .help       = "For internal use.",
-        .cmd        = hmp_GMBEOO_set_our_buf_address,
-    },
-
-STEXI
-@item set_our_buf_address @var{addr}
-@findex set_our_buf_address
-For internal use. 
-ETEXI
-
-    {
-        .name       = "update_trace_only_user_code_GMBE",
+        .name       = "update_trace_only_CPL3_code_GMBE",
         .args_type  = "flag:b",
         .params     = "on|off",
         .help       = "Control whether the event GMBE traces"
                       "accesses by both user and kernel code, or only "
                       "accesses by user code.",
-        .cmd        = hmp_GMBEOO_update_trace_only_user_code_GMBE,
+        .cmd        = hmp_GMBEOO_update_trace_only_CPL3_code_GMBE,
     },
 
 STEXI
-@item update_trace_only_user_code_GMBE
-@findex update_trace_only_user_code_GMBE
+@item update_trace_only_CPL3_code_GMBE
+@findex update_trace_only_CPL3_code_GMBE
 Control whether the event GMBE traces accesses
 by both user and kernel code, or only accesses by user code.
 ETEXI
