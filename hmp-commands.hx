@@ -352,7 +352,7 @@ ETEXI
         .args_type  = "",
         .params     = "",
         .help       = "For internal use.",
-        .cmd        = hmp_orenmn_print_trace_results,
+        .cmd        = hmp_GMBEOO_print_trace_results,
     },
 
 STEXI
@@ -366,7 +366,7 @@ ETEXI
         .args_type  = "addr:l",
         .params     = "addr",
         .help       = "For internal use.",
-        .cmd        = hmp_orenmn_set_our_buf_address,
+        .cmd        = hmp_GMBEOO_set_our_buf_address,
     },
 
 STEXI
@@ -382,7 +382,7 @@ ETEXI
         .help       = "Control whether the event GMBE traces"
                       "accesses by both user and kernel code, or only "
                       "accesses by user code.",
-        .cmd        = hmp_orenmn_update_trace_only_user_code_GMBE,
+        .cmd        = hmp_GMBEOO_update_trace_only_user_code_GMBE,
     },
 
 STEXI
@@ -398,7 +398,7 @@ ETEXI
         .params     = "log_of_GMBE_block_len",
         .help       = "Set the log of the length of a GMBE_block, i.e. the number "
                       "of GMBE events in a GMBE_block.",
-        .cmd        = hmp_orenmn_set_log_of_GMBE_block_len,
+        .cmd        = hmp_GMBEOO_set_log_of_GMBE_block_len,
     },
 
 STEXI
@@ -415,7 +415,7 @@ ETEXI
         .help       = "Set the log of the ratio between the number of blocks "
                       "of GMBE events we trace to the "
                       "total number of blocks.",
-        .cmd        = hmp_orenmn_set_log_of_GMBE_tracing_ratio,
+        .cmd        = hmp_GMBEOO_set_log_of_GMBE_tracing_ratio,
     },
 
 STEXI

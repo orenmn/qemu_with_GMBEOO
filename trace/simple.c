@@ -37,7 +37,7 @@
  * records to become available, writes them out, and then waits again.
  */
 static GMutex trace_lock;
-static GMutex orenmn_monitor_cmds_lock;
+static GMutex GMBEOO_monitor_cmds_lock;
 static GCond trace_available_cond;
 static GCond trace_empty_cond;
 
@@ -57,18 +57,15 @@ static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
 
-static uint32_t orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file = 0;
-// SEO = Single Event Optimization
-static volatile gint GMBEOO_num_of_events_written_to_trace_file = 0;
-static volatile gint num_of_events_written_to_trace_buf_since_GMBEOO_enabled = 0;
+static unsigned int GMBEOO_num_of_events_written_to_trace_file = 0;
 static bool GMBEOO_enabled = false;
-static bool orenmn_trace_only_user_code_GMBE = false;
-static int orenmn_log_of_GMBE_block_len = 0;
-static int orenmn_log_of_GMBE_tracing_ratio = 0;
-static volatile gpointer orenmn_GMBE_idx = 0;
-static uint64_t orenmn_mask_of_GMBE_idx_in_GMBE_block = 0;
-static uint64_t orenmn_mask_of_GMBE_block_idx = 0;
-static int * orenmn_our_buf_addr = 0;
+static bool GMBEOO_trace_only_user_code_GMBE = false;
+static int GMBEOO_log_of_GMBE_block_len = 0;
+static int GMBEOO_log_of_GMBE_tracing_ratio = 0;
+static volatile gpointer GMBEOO_GMBE_idx = 0;
+static uint64_t GMBEOO_mask_of_GMBE_idx_in_GMBE_block = 0;
+static uint64_t GMBEOO_mask_of_GMBE_block_idx = 0;
+static int * GMBEOO_our_buf_addr = 0;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
 #define TRACE_RECORD_TYPE_EVENT   1
@@ -82,7 +79,8 @@ typedef struct {
     uint64_t arguments[];
 } TraceRecord;
 
-/* * orenmn: Trace buffer entry in case of GMBEOO */
+/* * Trace buffer entry in case of GMBEOO */
+#pragma pack(push, 1) // exact fit - no padding
 typedef struct {
     uint8_t size_shift : 3; /* interpreted as "1 << size_shift" bytes */
     bool    sign_extend: 1; /* whether it is a sign-extended operation */
@@ -92,6 +90,7 @@ typedef struct {
     uint64_t unused2   : 56;
     uint64_t virt_addr : 64;
 } GMBEOO_TraceRecord;
+#pragma pack(pop) // back to whatever the previous packing mode was 
 
 typedef struct {
     uint64_t header_event_id; /* HEADER_EVENT_ID */
@@ -178,67 +177,67 @@ static void wait_for_trace_records_available(void)
     g_mutex_unlock(&trace_lock);
 }
 
-void orenmn_set_our_buf_address(int *buf_addr)
+void GMBEOO_set_our_buf_address(int *buf_addr)
 {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&GMBEOO_monitor_cmds_lock);
 
-    orenmn_our_buf_addr = buf_addr;
+    GMBEOO_our_buf_addr = buf_addr;
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
 
-void orenmn_update_trace_only_user_code_GMBE(bool flag)
+void GMBEOO_update_trace_only_user_code_GMBE(bool flag)
 {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&GMBEOO_monitor_cmds_lock);
 
-    orenmn_trace_only_user_code_GMBE = flag;
+    GMBEOO_trace_only_user_code_GMBE = flag;
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
 
 /* Assumes that both log_of_GMBE_block_len and log_of_GMBE_tracing_ratio are
    in [0, 64]. */
-static void orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
+static void GMBEOO_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
     int log_of_GMBE_block_len, int log_of_GMBE_tracing_ratio)
 {
-    orenmn_log_of_GMBE_block_len = log_of_GMBE_block_len;
-    orenmn_log_of_GMBE_tracing_ratio = log_of_GMBE_tracing_ratio;
+    GMBEOO_log_of_GMBE_block_len = log_of_GMBE_block_len;
+    GMBEOO_log_of_GMBE_tracing_ratio = log_of_GMBE_tracing_ratio;
     if (log_of_GMBE_block_len + log_of_GMBE_tracing_ratio > 64) {
         error_report("log_of_GMBE_block_len + log_of_GMBE_tracing_ratio must "
                      "be in [0, 64].");
         return;
     }
-    orenmn_mask_of_GMBE_idx_in_GMBE_block = (1 << log_of_GMBE_block_len) - 1;
-    orenmn_mask_of_GMBE_block_idx = ((1 << log_of_GMBE_tracing_ratio) - 1) <<
+    GMBEOO_mask_of_GMBE_idx_in_GMBE_block = (1 << log_of_GMBE_block_len) - 1;
+    GMBEOO_mask_of_GMBE_block_idx = ((1 << log_of_GMBE_tracing_ratio) - 1) <<
                                     log_of_GMBE_block_len;
-    g_atomic_pointer_set(&orenmn_GMBE_idx, 0);
+    g_atomic_pointer_set(&GMBEOO_GMBE_idx, 0);
 
-    info_report("orenmn_mask_of_GMBE_idx_in_GMBE_block: %016lx\n"
-                "orenmn_mask_of_GMBE_block_idx: %016lx",
-                orenmn_mask_of_GMBE_idx_in_GMBE_block,
-                orenmn_mask_of_GMBE_block_idx);
+    info_report("GMBEOO_mask_of_GMBE_idx_in_GMBE_block: %016lx\n"
+                "GMBEOO_mask_of_GMBE_block_idx: %016lx",
+                GMBEOO_mask_of_GMBE_idx_in_GMBE_block,
+                GMBEOO_mask_of_GMBE_block_idx);
 }
 
 /* Assumes that log_of_GMBE_block_len is in [0, 64]. */
-void orenmn_set_log_of_GMBE_block_len(int log_of_GMBE_block_len)
+void GMBEOO_set_log_of_GMBE_block_len(int log_of_GMBE_block_len)
 {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&GMBEOO_monitor_cmds_lock);
 
-    orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
-        log_of_GMBE_block_len, orenmn_log_of_GMBE_tracing_ratio);
+    GMBEOO_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
+        log_of_GMBE_block_len, GMBEOO_log_of_GMBE_tracing_ratio);
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
 
 /* Assumes that log_of_GMBE_tracing_ratio is in [0, 64]. */
-void orenmn_set_log_of_GMBE_tracing_ratio(int log_of_GMBE_tracing_ratio)
+void GMBEOO_set_log_of_GMBE_tracing_ratio(int log_of_GMBE_tracing_ratio)
 {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&GMBEOO_monitor_cmds_lock);
 
-    orenmn_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
-        orenmn_log_of_GMBE_block_len, log_of_GMBE_tracing_ratio);
+    GMBEOO_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
+        GMBEOO_log_of_GMBE_block_len, log_of_GMBE_tracing_ratio);
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
 
 bool is_GMBEOO_enabled(void)
@@ -246,68 +245,52 @@ bool is_GMBEOO_enabled(void)
     return GMBEOO_enabled;
 }
 
-void orenmn_print_trace_results(void)
+void GMBEOO_print_trace_results(void)
 {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&GMBEOO_monitor_cmds_lock);
 
-    uint64_t num_of_GMBE_events = (uint64_t)g_atomic_pointer_get(&orenmn_GMBE_idx);
-    info_report("num_of_GMBE_events: %lu", num_of_GMBE_events);
+    printf("-----begin trace results-----\n");
+    uint64_t num_of_GMBE_events = (uint64_t)g_atomic_pointer_get(&GMBEOO_GMBE_idx);
+    printf("num_of_GMBE_events: %lu", num_of_GMBE_events);
 
     if (is_GMBEOO_enabled()) {
-        unsigned int SEO_num_of_events_written_to_trace_buf =
+        unsigned int num_of_events_written_to_trace_buf =
             (uint32_t)g_atomic_int_get(&trace_idx) / sizeof(GMBEOO_TraceRecord);
-        if (g_atomic_int_get(
-                &num_of_events_written_to_trace_buf_since_GMBEOO_enabled) !=
-            SEO_num_of_events_written_to_trace_buf)
-        {
-            error_report(
-                "- - - - - - - - - - ATTENTION - - - - - - - - - -: "
-                "SEO_num_of_events_written_to_trace_buf (%u) != num of events "
-                "num_of_events_written_to_trace_buf_since_GMBEOO_enabled (%d). "
-                "smells like a bug.",
-                SEO_num_of_events_written_to_trace_buf,
-                g_atomic_int_get(
-                    &num_of_events_written_to_trace_buf_since_GMBEOO_enabled));
-        }
         unsigned int num_of_events_waiting_in_trace_buf = 0;
         for (unsigned int i = 0; i < TRACE_BUF_LEN; i += sizeof(GMBEOO_TraceRecord)) {
             if (*((uint64_t *)&trace_buf[i]) & TRACE_RECORD_VALID)
             {
-                uint64_t virt_addr =
-                    ((GMBEOO_TraceRecord *)&trace_buf[i])->virt_addr;
-                if (virt_addr >= (uint64_t)orenmn_our_buf_addr &&
-                    virt_addr < (uint64_t)orenmn_our_buf_addr + 20000 * sizeof(int))
-                {
-                    ++orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file;
-                }
                 ++num_of_events_waiting_in_trace_buf;
-                // info_report("%u", i);
             }
         }
-        info_report("num_of_events_waiting_in_trace_buf: %u",
-                    num_of_events_waiting_in_trace_buf);
+        if (num_of_events_waiting_in_trace_buf != 0) {
+            error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
+                         "num_of_events_waiting_in_trace_buf: %u\n"
+                         "This might have happened if you didn't execute "
+                         "`trace-file flush` twice after stopping the guest. "
+                         "(Though even if you did, I guess there might be "
+                         "invalid records, but I guess this is extremely "
+                         "improbable.)",
+                         num_of_events_waiting_in_trace_buf);
+        }
         unsigned int num_of_missing_events =
-            SEO_num_of_events_written_to_trace_buf -
-            g_atomic_int_get(&GMBEOO_num_of_events_written_to_trace_file) -
-            num_of_events_waiting_in_trace_buf;
+            num_of_events_written_to_trace_buf -
+            GMBEOO_num_of_events_written_to_trace_file;
         if (num_of_missing_events != 0) {
             error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
                          "num_of_missing_events (i.e. "
-                         "SEO_num_of_events_written_to_trace_buf - "
-                         "GMBEOO_num_of_events_written_to_trace_file - "
-                         "num_of_events_waiting_in_trace_buf): %u.",
+                         "num_of_events_written_to_trace_buf - "
+                         "GMBEOO_num_of_events_written_to_trace_file): %u.",
                          num_of_missing_events);
         }
-        info_report("SEO_num_of_events_written_to_trace_buf: %d",
-                    SEO_num_of_events_written_to_trace_buf);
-        if (SEO_num_of_events_written_to_trace_buf != 0) {
-            info_report("num_of_GMBE_events / SEO_num_of_events_written_to_trace_buf: %lf",
-                        (double)num_of_GMBE_events / SEO_num_of_events_written_to_trace_buf);
+        printf("num_of_events_written_to_trace_buf: %d",
+               num_of_events_written_to_trace_buf);
+        if (num_of_events_written_to_trace_buf != 0) {
+            printf("num_of_GMBE_events / "
+                   "num_of_events_written_to_trace_buf: %lf",
+                   (double)num_of_GMBE_events /
+                   num_of_events_written_to_trace_buf);
         }
-    }
-    if (orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file != 0) {
-        info_report("orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file: %u",
-                    orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file);
     }
 
     int num_of_dropped_events = g_atomic_int_get(&dropped_events);
@@ -315,9 +298,9 @@ void orenmn_print_trace_results(void)
         warn_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
                     "%d events were dropped.", num_of_dropped_events);
     }
-    printf("\n"); // orenmn: for my own convenience. shouldn't be here.
+    printf("-----end trace results-----\n\n");
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
 
 static gpointer writeout_thread(gpointer opaque)
@@ -341,19 +324,13 @@ static gpointer writeout_thread(gpointer opaque)
             assert(idx % sizeof(GMBEOO_TraceRecord) == 0);
 
             uint32_t i = 0;
+
             /* We can't call fwrite once for both the end and the beginning of
                trace_buf, so we add this while loop, to prevent a case in which
                TRACE_BUF_FLUSH_THRESHOLD was reached, but there is only a small
                number of trace records at the end of trace_buf, and many at its
-               beginning. (recall that trace_buf is a cyclic buffer.)
-               This while also helps in the case that one of the next
-               TRACE_BUF_FLUSH_THRESHOLD records to write is still invalid.
-               We would loop here until some rogue record is
-
-               */
-
-            while (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx) >
-                   TRACE_BUF_FLUSH_THRESHOLD) {
+               beginning. (recall that trace_buf is a cyclic buffer.) */
+            do {
                 /* Find the first invalid trace record. We would write all
                    of the records until that one. */
                 unsigned int temp_idx = idx;
@@ -371,15 +348,17 @@ static gpointer writeout_thread(gpointer opaque)
 
                 while (temp_idx < TRACE_BUF_LEN &&
                        (*((uint64_t *)&trace_buf[temp_idx]) & TRACE_RECORD_VALID)) {
-                    g_atomic_int_inc(&GMBEOO_num_of_events_written_to_trace_file);
+                    ++GMBEOO_num_of_events_written_to_trace_file;
                     temp_idx += sizeof(GMBEOO_TraceRecord);
                 }
 
-                unsigned int orenmn_num_of_bytes_to_write = temp_idx - idx;
+                unsigned int num_of_bytes_to_write = temp_idx - idx;
                 size_t fwrite_res;
-                fwrite_res = fwrite(&trace_buf[idx], orenmn_num_of_bytes_to_write,
+                fwrite_res = fwrite(&trace_buf[idx], num_of_bytes_to_write,
                                     1, trace_fp);
-                if (fwrite_res != 1) {
+                // if num_of_bytes_to_write == 0, fwrite returns 0.
+                // http://pubs.opengroup.org/onlinepubs/7908799/xsh/fwrite.html
+                if (fwrite_res != 1 && num_of_bytes_to_write != 0) {
                     error_report("\nfwrite error! file: %s, line: %u, "
                                  "ferror: %d, feof: %d, errno: %d\n\n",
                                  __FILE__, __LINE__,
@@ -387,12 +366,13 @@ static gpointer writeout_thread(gpointer opaque)
                     exit(1);
                 }
                 // Instead of calling `clear_buffer_range`
-                assert(idx + orenmn_num_of_bytes_to_write <= TRACE_BUF_LEN);
-                memset(&trace_buf[idx], 0, orenmn_num_of_bytes_to_write);
+                assert(idx + num_of_bytes_to_write <= TRACE_BUF_LEN);
+                memset(&trace_buf[idx], 0, num_of_bytes_to_write);
 
-                writeout_idx += orenmn_num_of_bytes_to_write;
+                writeout_idx += num_of_bytes_to_write;
                 idx = writeout_idx % TRACE_BUF_LEN;
-            }
+            } while (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx) >
+                     TRACE_BUF_FLUSH_THRESHOLD);
         }
         else {
             assert(!is_GMBEOO_enabled());
@@ -427,11 +407,6 @@ static gpointer writeout_thread(gpointer opaque)
 
 void trace_record_write_u64(TraceBufferRecord *rec, uint64_t val)
 {
-    // if (val >= (uint64_t)orenmn_our_buf_addr &&
-    //     val < (uint64_t)orenmn_our_buf_addr + 20000 * sizeof(int))
-    // {
-    //     g_atomic_int_inc(&orenmn_num_of_GMBEs_to_our_buf_not_written_to_trace_file);
-    // }
     rec->rec_off = write_to_buffer(rec->rec_off, &val, sizeof(uint64_t));
 }
 
@@ -444,12 +419,8 @@ void trace_record_write_str(TraceBufferRecord *rec, const char *s, uint32_t slen
 }
 
 static bool is_this_GMBE_in_a_traced_block(void) {
-    uint64_t GMBE_idx = (uint64_t)g_atomic_pointer_add(&orenmn_GMBE_idx, 1);
-    return (GMBE_idx & orenmn_mask_of_GMBE_block_idx) == 0;
-    // for (int i = 0; i < 100; ++i) {
-    //     GMBE_idx++;
-    // }
-    // return false;
+    uint64_t GMBE_idx = (uint64_t)g_atomic_pointer_add(&GMBEOO_GMBE_idx, 1);
+    return (GMBE_idx & GMBEOO_mask_of_GMBE_block_idx) == 0;
 }
 
 void GMBEOO_write_trace_record(uint64_t virt_addr, uint8_t info)
@@ -480,7 +451,6 @@ void GMBEOO_write_trace_record(uint64_t virt_addr, uint8_t info)
     smp_wmb(); /* write barrier before marking as valid */
     *((uint64_t *)&(trace_buf[idx])) |= TRACE_RECORD_VALID;
 
-    g_atomic_int_inc(&num_of_events_written_to_trace_buf_since_GMBEOO_enabled);
     if (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx)
         > TRACE_BUF_FLUSH_THRESHOLD) {
         flush_trace_file(false);
@@ -654,7 +624,7 @@ void st_set_trace_file(const char *file)
 
 void enable_GMBEOO(void)
 {
-    g_mutex_lock(&orenmn_monitor_cmds_lock);
+    g_mutex_lock(&GMBEOO_monitor_cmds_lock);
     
     if (TRACE_BUF_LEN % sizeof(GMBEOO_TraceRecord) != 0 ||
         !is_power_of_2(sizeof(GMBEOO_TraceRecord)))
@@ -673,10 +643,9 @@ void enable_GMBEOO(void)
                 "trace record size: %u",
                 (unsigned int)sizeof(GMBEOO_TraceRecord));
 
-    g_atomic_int_set(&num_of_events_written_to_trace_buf_since_GMBEOO_enabled, 0);
-    g_atomic_pointer_set(&orenmn_GMBE_idx, 0);
+    g_atomic_pointer_set(&GMBEOO_GMBE_idx, 0);
 
-    g_mutex_unlock(&orenmn_monitor_cmds_lock);
+    g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
 
 void st_print_trace_file_status(FILE *stream, int (*stream_printf)(FILE *stream, const char *fmt, ...))
@@ -716,7 +685,7 @@ static GThread *trace_thread_create(GThreadFunc fn)
 
 bool st_init(void)
 {
-    /* orenmn: TRACE_BUF_LEN must be a divisor of 1 << 32, i.e. a power of 2,
+    /* GMBEOO: TRACE_BUF_LEN must be a divisor of 1 << 32, i.e. a power of 2,
        because we (and also QEMU's original code) do
        `idx = writeout_idx % TRACE_BUF_LEN;`, and `writeout_idx` might
        overflow. */
@@ -738,9 +707,9 @@ bool st_init(void)
 
 
 /* Return true if should trace, according to
-   orenmn_trace_only_user_code_GMBE. Otherwise, return false. */
-bool orenmn_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
-    // orenmn: This is CPUX86State's definition in target/i386/cpu.h,
+   GMBEOO_trace_only_user_code_GMBE. Otherwise, return false. */
+bool GMBEOO_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
+    // GMBEOO: This is CPUX86State's definition in target/i386/cpu.h,
     // which I didn't manage to include here. Thus I couldn't do
     // `((struct CPUX86State *)__cpu->env_ptr)->hflags`, and thus this very
     // ugly solution.
@@ -771,7 +740,7 @@ bool orenmn_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
                            sizeof(uint32_t) + sizeof(int32_t);
     uint8_t cpl = env[offset_of_hflags] & 3;
     // cpl < 3 means that the guest is not in ring 3, i.e. not in user code.
-    if (orenmn_trace_only_user_code_GMBE && cpl < 3) {
+    if (GMBEOO_trace_only_user_code_GMBE && cpl < 3) {
         return false;
     }
     *info |= cpl << 6;

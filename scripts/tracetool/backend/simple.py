@@ -84,7 +84,7 @@ def generate_c(event, group):
         out('',
             '    if (is_GMBEOO_enabled()) {',
             '#ifdef __x86_64__',
-            '        if (!orenmn_add_cpl_to_GMBE_info_if_should_trace(&info, (uint8_t *)__cpu->env_ptr)) {',
+            '        if (!GMBEOO_add_cpl_to_GMBE_info_if_should_trace(&info, (uint8_t *)__cpu->env_ptr)) {',
             '            return;',
             '        }',
             '#endif',
