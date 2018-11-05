@@ -57,7 +57,6 @@ static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
 
-static unsigned int GMBEOO_num_of_events_written_to_trace_file = 0;
 static bool GMBEOO_enabled = false;
 static bool GMBEOO_trace_only_CPL3_code_GMBE = false;
 static int GMBEOO_log_of_GMBE_block_len = 0;
@@ -276,11 +275,13 @@ void GMBEOO_print_trace_info(void)
         // i.e. when GMBEOO was enabled, trace_idx == 0.
         unsigned int num_of_events_written_to_trace_buf =
             (uint32_t)g_atomic_int_get(&trace_idx) / sizeof(GMBEOO_TraceRecord);
+        unsigned int num_of_events_written_to_trace_file =
+            writeout_idx / sizeof(GMBEOO_TraceRecord);
         printf("num_of_events_written_to_trace_buf: %d\n",
                num_of_events_written_to_trace_buf);
         unsigned int num_of_missing_events =
             num_of_events_written_to_trace_buf -
-            GMBEOO_num_of_events_written_to_trace_file -
+            num_of_events_written_to_trace_file -
             num_of_events_waiting_in_trace_buf;
         if (num_of_missing_events != 0) {
             error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
@@ -356,7 +357,6 @@ static gpointer writeout_thread(gpointer opaque)
 
                 while (temp_idx < TRACE_BUF_LEN &&
                        (*((uint64_t *)&trace_buf[temp_idx]) & TRACE_RECORD_VALID)) {
-                    ++GMBEOO_num_of_events_written_to_trace_file;
                     temp_idx += sizeof(GMBEOO_TraceRecord);
                 }
 
