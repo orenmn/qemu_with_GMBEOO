@@ -332,8 +332,6 @@ static gpointer writeout_thread(gpointer opaque)
 
             assert(idx % sizeof(GMBEOO_TraceRecord) == 0);
 
-            uint32_t i = 0;
-
             /* We can't call fwrite once for both the end and the beginning of
                trace_buf, so we add this while loop, to prevent a case in which
                TRACE_BUF_FLUSH_THRESHOLD was reached, but there is only a small
@@ -348,13 +346,6 @@ static gpointer writeout_thread(gpointer opaque)
                    `TRACE_BUF_LEN % sizeof(GMBEOO_TraceRecord) == 0`.
                    This also guarantees that when the loop ends,
                    `temp_idx <= TRACE_BUF_LEN`. */
-                if (i++ >= 2) {
-                    error_report("i... file: %s, line: %u\n\n",
-                                 __FILE__, __LINE__);
-                    exit(1);
-                }
-
-
                 while (temp_idx < TRACE_BUF_LEN &&
                        (*((uint64_t *)&trace_buf[temp_idx]) & TRACE_RECORD_VALID)) {
                     temp_idx += sizeof(GMBEOO_TraceRecord);
