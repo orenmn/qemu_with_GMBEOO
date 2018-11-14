@@ -347,17 +347,19 @@ static gpointer writeout_thread(gpointer opaque)
                    This also guarantees that when the loop ends,
                    `temp_idx <= TRACE_BUF_LEN`. */
                 while (temp_idx < TRACE_BUF_LEN &&
-                       (*((uint64_t *)&trace_buf[temp_idx]) & TRACE_RECORD_VALID)) {
+                       (*((uint64_t *)&trace_buf[temp_idx]) & TRACE_RECORD_VALID))
+                {
                     temp_idx += sizeof(GMBEOO_TraceRecord);
                 }
 
                 unsigned int num_of_bytes_to_write = temp_idx - idx;
+                if (num_of_bytes_to_write == 0) {
+                    break;
+                }
                 size_t fwrite_res;
                 fwrite_res = fwrite(&trace_buf[idx], num_of_bytes_to_write,
                                     1, trace_fp);
-                // if num_of_bytes_to_write == 0, fwrite returns 0.
-                // http://pubs.opengroup.org/onlinepubs/7908799/xsh/fwrite.html
-                if (fwrite_res != 1 && num_of_bytes_to_write != 0) {
+                if (fwrite_res != 1) {
                     error_report("\nfwrite error! file: %s, line: %u, "
                                  "ferror: %d, feof: %d, errno: %d\n\n",
                                  __FILE__, __LINE__,
