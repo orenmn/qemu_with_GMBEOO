@@ -241,7 +241,8 @@ void GMBEOO_print_trace_info(void)
     printf("-----begin trace info-----\n"
            "Caution! All of the info is assuming there weren't any integer "
            "overflows in the related counters, which is quite probable if you "
-           "collected traces for a long time.\n");
+           "collected traces for a long time (as some of the counters are "
+           "32-bit integers).\n");
 
     if (is_GMBEOO_enabled()) {
         unsigned int num_of_events_waiting_in_trace_buf = 0;
@@ -258,8 +259,8 @@ void GMBEOO_print_trace_info(void)
                          "`trace-file flush` twice after stopping the tracing "
                          "and stopping the guest. "
                          "(Though even if you did, the cause might be "
-                         "invalid records, but I guess this is highly "
-                         "improbable.)",
+                         "an invalid record before valid records, but I guess "
+                         "this is highly improbable.)",
                          num_of_events_waiting_in_trace_buf);
         }
         
