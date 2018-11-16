@@ -293,12 +293,12 @@ void GMBEOO_print_trace_info(void)
                          num_of_missing_events);
         }
         if (num_of_events_written_to_trace_buf != 0) {
-            double actual_tracing_ratio =
-                (double)num_of_GMBE_events_since_enabling_GMBEOO /
+            uint64_t actual_tracing_ratio =
+                num_of_GMBE_events_since_enabling_GMBEOO /
                 num_of_events_written_to_trace_buf;
             printf("actual_tracing_ratio (i.e. "
                    "num_of_GMBE_events_since_enabling_GMBEOO / "
-                   "num_of_events_written_to_trace_buf): %lf\n",
+                   "num_of_events_written_to_trace_buf): %lu\n",
                    actual_tracing_ratio);
         }
     }
