@@ -56,7 +56,6 @@ static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
 
-static GMutex GMBEOO_monitor_cmds_lock;
 static bool GMBEOO_enabled = false;
 static bool GMBEOO_trace_only_CPL3_code_GMBE = false;
 static int GMBEOO_log_of_GMBE_block_len = 0;
@@ -65,6 +64,9 @@ static uint64_t GMBEOO_mask_of_GMBE_idx_in_GMBE_block = 0;
 static uint64_t GMBEOO_mask_of_GMBE_block_idx = 0;
 // We use a gpointer because it is 64-bit.
 static volatile gpointer GMBEOO_GMBE_idx = 0;
+/* This is probably unnecessary, but I didn't want to worry about race
+   conditions between our monitor cmds handlers, so I added that. */
+static GMutex GMBEOO_monitor_cmds_lock;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
 #define TRACE_RECORD_TYPE_EVENT   1
@@ -246,10 +248,10 @@ void GMBEOO_print_trace_info(void)
     g_mutex_lock(&GMBEOO_monitor_cmds_lock);
 
     printf("-----begin trace info-----\n"
-           "Caution! All of the info is assuming there weren't any integer "
-           "overflows in the related counters, which is quite probable if you "
-           "collected traces for a long time (as some of the counters are "
-           "32-bit integers).\n");
+           "Caution! All of the following info is valid only if there weren't "
+           "any integer overflows in the related counters, which is not "
+           "unreasonable if you collected traces for a long time (as some of "
+           "the counters are 32-bit integers).\n");
 
     if (is_GMBEOO_enabled()) {
         unsigned int num_of_events_waiting_in_trace_buf = 0;
@@ -262,9 +264,10 @@ void GMBEOO_print_trace_info(void)
         if (num_of_events_waiting_in_trace_buf != 0) {
             error_report("- - - - - - - - - - ATTENTION - - - - - - - - - -: "
                          "num_of_events_waiting_in_trace_buf: %u\n"
-                         "The cause for this might be that you didn't execute "
-                         "`trace-file flush` twice after stopping the tracing "
-                         "and stopping the guest. "
+                         "The cause for this might be that you removed the code "
+                         "in 'run_qemu_and_workload.sh' that executes the "
+                         "monitor cmd `trace-file flush` twice after stopping "
+                         "the tracing and stopping the guest. "
                          "(Though even if you did, the cause might be "
                          "an invalid record before valid records, but I guess "
                          "this is highly improbable.)",
@@ -279,7 +282,7 @@ void GMBEOO_print_trace_info(void)
                "this doesn't include GMBE events of non-CPL3 code.\n",
                num_of_GMBE_events_since_enabling_GMBEOO);
 
-        // We assume here that GMBEOO was enabled, before any event was traced.
+        // We assume here that GMBEOO was enabled before any event was traced.
         // i.e. when GMBEOO was enabled, trace_idx == 0.
         unsigned int num_of_events_written_to_trace_buf =
             (uint32_t)g_atomic_int_get(&trace_idx) / sizeof(GMBEOO_TraceRecord);
@@ -336,34 +339,29 @@ static gpointer writeout_thread(gpointer opaque)
         wait_for_trace_records_available();
 
         if (is_GMBEOO_enabled()) {
-            /* Just let dropped_events count the number dropped events. */
+            /* Instead of sending an event that specifies a number of events
+               events that were dropped (which is what upstream qemu does),
+               just let dropped_events count the number of dropped events. */
+
 
             assert(idx % sizeof(GMBEOO_TraceRecord) == 0);
 
-            /* We can't call fwrite once for both the end and the beginning of
-               trace_buf, so we add this while loop, to prevent a case in which
-               TRACE_BUF_FLUSH_THRESHOLD was reached, but there is only a small
-               number of trace records at the end of trace_buf, and many at its
-               beginning. (recall that trace_buf is a cyclic buffer.) */
-            do {
-                /* Find the first invalid trace record. We would write all
-                   of the records until that one. */
-                unsigned int temp_idx = idx;
-                /* Dereferencing to get the event field is OK because it is
-                   guaranteed that
-                   `TRACE_BUF_LEN % sizeof(GMBEOO_TraceRecord) == 0`.
-                   This also guarantees that when the loop ends,
-                   `temp_idx <= TRACE_BUF_LEN`. */
-                while (temp_idx < TRACE_BUF_LEN &&
-                       (*((uint64_t *)&trace_buf[temp_idx]) & TRACE_RECORD_VALID))
-                {
-                    temp_idx += sizeof(GMBEOO_TraceRecord);
-                }
+            /* Find the first invalid trace record. We would write all
+               of the records until that one. */
+            unsigned int temp_idx = idx;
+            /* Dereferencing to get the event field is OK because it is
+               guaranteed that
+               `TRACE_BUF_LEN % sizeof(GMBEOO_TraceRecord) == 0`.
+               This also guarantees that when the loop ends,
+               `temp_idx <= TRACE_BUF_LEN`. */
+            while (temp_idx < TRACE_BUF_LEN &&
+                   (*((uint64_t *)&trace_buf[temp_idx]) & TRACE_RECORD_VALID))
+            {
+                temp_idx += sizeof(GMBEOO_TraceRecord);
+            }
 
-                unsigned int num_of_bytes_to_write = temp_idx - idx;
-                if (num_of_bytes_to_write == 0) {
-                    break;
-                }
+            unsigned int num_of_bytes_to_write = temp_idx - idx;
+            if (num_of_bytes_to_write != 0) {
                 size_t fwrite_res;
                 fwrite_res = fwrite(&trace_buf[idx], num_of_bytes_to_write,
                                     1, trace_fp);
@@ -380,8 +378,7 @@ static gpointer writeout_thread(gpointer opaque)
 
                 writeout_idx += num_of_bytes_to_write;
                 idx = writeout_idx % TRACE_BUF_LEN;
-            } while (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx) >
-                     TRACE_BUF_FLUSH_THRESHOLD);
+            }
         }
         else {
             assert(!is_GMBEOO_enabled());
