@@ -107,7 +107,6 @@ def generate_c(event, group):
 
     if len(event.args) > 0:
         for type_, name in event.args:
-
             # string
             if is_string(type_):
                 out('    trace_record_write_str(&rec, %(name)s, arg%(name)s_len);',

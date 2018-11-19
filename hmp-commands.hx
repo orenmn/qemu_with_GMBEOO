@@ -365,7 +365,7 @@ ETEXI
         .name       = "update_trace_only_CPL3_code_GMBE",
         .args_type  = "flag:b",
         .params     = "on|off",
-        .help       = "Control whether the event GMBE traces"
+        .help       = "Control whether to trace GMBE events of "
                       "accesses by both user and kernel code, or only "
                       "accesses by user code.",
         .cmd        = hmp_GMBEOO_update_trace_only_CPL3_code_GMBE,
@@ -374,7 +374,7 @@ ETEXI
 STEXI
 @item update_trace_only_CPL3_code_GMBE
 @findex update_trace_only_CPL3_code_GMBE
-Control whether the event GMBE traces accesses
+Control whether the trace GMBE events of accesses
 by both user and kernel code, or only accesses by user code.
 ETEXI
 
@@ -398,18 +398,16 @@ ETEXI
         .name       = "set_log_of_GMBE_tracing_ratio",
         .args_type  = "log_of_GMBE_tracing_ratio:i",
         .params     = "log_of_GMBE_tracing_ratio",
-        .help       = "Set the log of the ratio between the number of blocks "
-                      "of GMBE events we trace to the "
-                      "total number of blocks.",
+        .help       = "Set the log of the ratio between the total number of "
+                      "GMBE_blocks to the number of GMBE_blocks that we trace.",
         .cmd        = hmp_GMBEOO_set_log_of_GMBE_tracing_ratio,
     },
 
 STEXI
 @item set_log_of_GMBE_tracing_ratio
 @findex set_log_of_GMBE_tracing_ratio
-Set the log of the ratio between the number of blocks
-of GMBE events we trace to the
-total number of blocks.
+Set the log of the ratio between the total number of
+GMBE_blocks to the number of GMBE_blocks that we trace.
 ETEXI
 #endif
 

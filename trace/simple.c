@@ -37,7 +37,6 @@
  * records to become available, writes them out, and then waits again.
  */
 static GMutex trace_lock;
-static GMutex GMBEOO_monitor_cmds_lock;
 static GCond trace_available_cond;
 static GCond trace_empty_cond;
 
@@ -57,13 +56,15 @@ static uint32_t trace_pid;
 static FILE *trace_fp;
 static char *trace_file_name;
 
+static GMutex GMBEOO_monitor_cmds_lock;
 static bool GMBEOO_enabled = false;
 static bool GMBEOO_trace_only_CPL3_code_GMBE = false;
 static int GMBEOO_log_of_GMBE_block_len = 0;
 static int GMBEOO_log_of_GMBE_tracing_ratio = 0;
-static volatile gpointer GMBEOO_GMBE_idx = 0;
 static uint64_t GMBEOO_mask_of_GMBE_idx_in_GMBE_block = 0;
 static uint64_t GMBEOO_mask_of_GMBE_block_idx = 0;
+// We use a gpointer because it is 64-bit.
+static volatile gpointer GMBEOO_GMBE_idx = 0;
 
 #define TRACE_RECORD_TYPE_MAPPING 0
 #define TRACE_RECORD_TYPE_EVENT   1
@@ -84,7 +85,13 @@ typedef struct {
     bool    sign_extend: 1; /* whether it is a sign-extended operation */
     uint8_t endianness : 1; /* 0: little, 1: big */
     bool    store      : 1; /* whether it is a store operation */
-    uint8_t cpl        : 2;
+    uint8_t cpl        : 2; /* probably the CPL while the access was performed.
+                               "probably" because we consistently see few trace
+                               records according to which CPL3 code tries to
+                               access cpu_entry_area, which shouldn't be
+                               accessible by CPL3 code. For more, see
+                               https://unix.stackexchange.com/questions/476768/what-is-cpu-entry-area,
+                               including the comments to the answer. */
     uint64_t unused2   : 56;
     uint64_t virt_addr : 64;
 } GMBEOO_TraceRecord;
@@ -189,13 +196,13 @@ void GMBEOO_update_trace_only_CPL3_code_GMBE(bool flag)
 static void GMBEOO_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
     int log_of_GMBE_block_len, int log_of_GMBE_tracing_ratio)
 {
-    GMBEOO_log_of_GMBE_block_len = log_of_GMBE_block_len;
-    GMBEOO_log_of_GMBE_tracing_ratio = log_of_GMBE_tracing_ratio;
     if (log_of_GMBE_block_len + log_of_GMBE_tracing_ratio > 64) {
         error_report("log_of_GMBE_block_len + log_of_GMBE_tracing_ratio must "
                      "be in [0, 64].");
         return;
     }
+    GMBEOO_log_of_GMBE_block_len = log_of_GMBE_block_len;
+    GMBEOO_log_of_GMBE_tracing_ratio = log_of_GMBE_tracing_ratio;
     GMBEOO_mask_of_GMBE_idx_in_GMBE_block = (1 << log_of_GMBE_block_len) - 1;
     GMBEOO_mask_of_GMBE_block_idx = ((1 << log_of_GMBE_tracing_ratio) - 1) <<
                                     log_of_GMBE_block_len;
