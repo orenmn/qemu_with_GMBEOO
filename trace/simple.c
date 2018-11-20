@@ -68,6 +68,7 @@ static volatile gpointer GMBEOO_GMBE_idx = 0;
    conditions between our monitor cmds handlers, so I added that. */
 static GMutex GMBEOO_monitor_cmds_lock;
 
+#define CPL_BIT_IDX_IN_GMBEOO_TRACE_RECORD  (6)
 #define TRACE_RECORD_TYPE_MAPPING 0
 #define TRACE_RECORD_TYPE_EVENT   1
 
@@ -649,12 +650,12 @@ void enable_GMBEOO(void)
                      TRACE_BUF_LEN, (unsigned int)sizeof(GMBEOO_TraceRecord));
         exit(1);
     }
+    g_atomic_pointer_set(&GMBEOO_GMBE_idx, 0);
     GMBEOO_enabled = true;
+    
     info_report("GMBEOO is on.\n"
                 "trace record size: %u",
                 (unsigned int)sizeof(GMBEOO_TraceRecord));
-
-    g_atomic_pointer_set(&GMBEOO_GMBE_idx, 0);
 
     g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
@@ -725,7 +726,7 @@ bool GMBEOO_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
     // `((struct CPUX86State *)__cpu->env_ptr)->hflags`, and thus this very
     // ugly solution.
     // Please replace this ugliness with something beautiful if you can.
-    // A less ugly solution would be to add something to the makefile that uses
+    // A less ugly solution might be to add something to the makefile that uses
     // offsetof(struct CPUX86State, hflags), and then run a Python script to
     // patch the code in this function to do
     // `env[offsetof(struct CPUX86State, hflags)]`.
@@ -754,7 +755,7 @@ bool GMBEOO_add_cpl_to_GMBE_info_if_should_trace(uint8_t *info, uint8_t *env) {
     if (GMBEOO_trace_only_CPL3_code_GMBE && cpl < 3) {
         return false;
     }
-    *info |= cpl << 6;
+    *info |= cpl << CPL_BIT_IDX_IN_GMBEOO_TRACE_RECORD;
     return true;
 }
 
