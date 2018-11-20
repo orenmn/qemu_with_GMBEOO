@@ -80,24 +80,28 @@ typedef struct {
     uint64_t arguments[];
 } TraceRecord;
 
-/* * Trace buffer entry in case of GMBEOO */
+/* Trace buffer entry in case of GMBEOO */
 #pragma pack(push, 1) // exact fit - no padding
 typedef struct {
-    uint8_t size_shift : 3; /* interpreted as "1 << size_shift" bytes */
-    bool    sign_extend: 1; /* whether it is a sign-extended operation */
-    uint8_t endianness : 1; /* 0: little, 1: big */
-    bool    store      : 1; /* whether it is a store operation */
-    uint8_t cpl        : 2; /* probably the CPL while the access was performed.
-                               "probably" because we consistently see few trace
-                               records according to which CPL3 code tries to
-                               access cpu_entry_area, which shouldn't be
-                               accessible by CPL3 code. For more, see
-                               https://unix.stackexchange.com/questions/476768/what-is-cpu-entry-area,
-                               including the comments to the answer. */
-    uint64_t unused2   : 56;
-    uint64_t virt_addr : 64;
+    uint8_t     size_shift  : 3; /* interpreted as "1 << size_shift" bytes */
+    bool        sign_extend : 1; /* whether it is a sign-extended operation */
+    uint8_t     endianness  : 1; /* 0: little, 1: big */
+    bool        store       : 1; /* whether it is a store operation */
+    uint8_t     cpl         : 2; /* probably the CPL while the access was performed.
+                                    "probably" because we consistently see few trace
+                                    records according to which CPL3 code tries to
+                                    access cpu_entry_area, which shouldn't be
+                                    accessible by CPL3 code. For more, see
+                                    https://unix.stackexchange.com/questions/476768/what-is-cpu-entry-area,
+                                    including the comments to the answer. */
+    uint64_t    unused2     : 55;
+    bool        is_valid    : 1;  /* whether the trace record is ready to be written
+                                     to the trace file. This field is for internal
+                                     use by qemu_with_GMBEOO, and is useless for the
+                                     analysis tool, as it would always be 1. */
+    uint64_t    virt_addr   : 64; /* the virtual address */
 } GMBEOO_TraceRecord;
-#pragma pack(pop) // back to whatever the previous packing mode was 
+#pragma pack(pop) // back to whatever the previous packing mode was
 
 typedef struct {
     uint64_t header_event_id; /* HEADER_EVENT_ID */
@@ -256,8 +260,8 @@ void GMBEOO_print_trace_info(void)
     if (is_GMBEOO_enabled()) {
         unsigned int num_of_events_waiting_in_trace_buf = 0;
         for (unsigned int i = 0; i < TRACE_BUF_LEN; i += sizeof(GMBEOO_TraceRecord)) {
-            if (*((uint64_t *)&trace_buf[i]) & TRACE_RECORD_VALID)
-            {
+            GMBEOO_TraceRecord *curr_record = (GMBEOO_TraceRecord *)&trace_buf[i];
+            if (curr_record->is_valid) {
                 ++num_of_events_waiting_in_trace_buf;
             }
         }
@@ -355,7 +359,7 @@ static gpointer writeout_thread(gpointer opaque)
                This also guarantees that when the loop ends,
                `temp_idx <= TRACE_BUF_LEN`. */
             while (temp_idx < TRACE_BUF_LEN &&
-                   (*((uint64_t *)&trace_buf[temp_idx]) & TRACE_RECORD_VALID))
+                   (((GMBEOO_TraceRecord *)&trace_buf[temp_idx])->is_valid))
             {
                 temp_idx += sizeof(GMBEOO_TraceRecord);
             }
@@ -434,8 +438,9 @@ void GMBEOO_write_trace_record(uint64_t virt_addr, uint8_t info)
     if (!is_this_GMBE_in_a_traced_block()) {
         return;
     }
-    unsigned int idx, old_idx, new_idx;
 
+    unsigned int old_idx, new_idx;
+    // This loop logic was copied from trace_record_start, with a minor change.
     do {
         old_idx = g_atomic_int_get(&trace_idx);
         smp_rmb();
@@ -448,14 +453,17 @@ void GMBEOO_write_trace_record(uint64_t virt_addr, uint8_t info)
         }
     } while (!g_atomic_int_compare_and_exchange(&trace_idx, old_idx, new_idx));
 
-    idx = old_idx % TRACE_BUF_LEN;
+    unsigned int idx = old_idx % TRACE_BUF_LEN;
     assert(idx + sizeof(GMBEOO_TraceRecord) <= TRACE_BUF_LEN);
     
-    *(uint8_t *)&trace_buf[idx] = info;
-    ((GMBEOO_TraceRecord *)&(trace_buf[idx]))->virt_addr = virt_addr;
+    GMBEOO_TraceRecord *record = (GMBEOO_TraceRecord *)&(trace_buf[idx]);
 
+    *(uint8_t *)record = info;
+    record->virt_addr = virt_addr;
+
+    // Most of this logic was copied from trace_record_finish.
     smp_wmb(); /* write barrier before marking as valid */
-    *((uint64_t *)&(trace_buf[idx])) |= TRACE_RECORD_VALID;
+    record->is_valid = 1;
 
     if (((unsigned int)g_atomic_int_get(&trace_idx) - writeout_idx)
         > TRACE_BUF_FLUSH_THRESHOLD) {
@@ -468,9 +476,9 @@ int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
     assert(!is_GMBEOO_enabled());
 
     unsigned int idx, rec_off, old_idx, new_idx;
-    uint32_t rec_len;
-    rec_len = sizeof(TraceRecord) + datasize;
+    uint32_t rec_len = sizeof(TraceRecord) + datasize;
     uint64_t event_u64 = event;
+    uint64_t timestamp_ns = get_clock();
 
     do {
         old_idx = g_atomic_int_get(&trace_idx);
@@ -488,18 +496,12 @@ int trace_record_start(TraceBufferRecord *rec, uint32_t event, size_t datasize)
 
     rec_off = idx;
     rec_off = write_to_buffer(rec_off, &event_u64, sizeof(event_u64));
-    uint64_t timestamp_ns = get_clock();
     rec_off = write_to_buffer(rec_off, &timestamp_ns, sizeof(timestamp_ns));
     rec_off = write_to_buffer(rec_off, &rec_len, sizeof(rec_len));
     rec_off = write_to_buffer(rec_off, &trace_pid, sizeof(trace_pid));
 
     rec->tbuf_idx = idx;
-    if (is_GMBEOO_enabled()) {
-        rec->rec_off  = (idx + sizeof(GMBEOO_TraceRecord)) % TRACE_BUF_LEN;
-    }
-    else {
-        rec->rec_off  = (idx + sizeof(TraceRecord)) % TRACE_BUF_LEN;
-    }
+    rec->rec_off  = (idx + sizeof(TraceRecord)) % TRACE_BUF_LEN;
     return 0;
 }
 
@@ -590,6 +592,7 @@ void st_set_trace_file_enabled(bool enable)
             return;
         }
 
+        // Don't write a header to the trace file if GMBEOO is enabled.
         if (!is_GMBEOO_enabled()) {
             if (fwrite(&header, sizeof header, 1, trace_fp) != 1 ||
                 st_write_event_mapping() < 0) {
