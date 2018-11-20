@@ -229,6 +229,8 @@ void GMBEOO_set_log_of_GMBE_block_len(int log_of_GMBE_block_len)
     GMBEOO_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
         log_of_GMBE_block_len, GMBEOO_log_of_GMBE_tracing_ratio);
 
+    info_report("GMBEOO log_of_GMBE_block_len was set.\n");
+
     g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
 
@@ -239,6 +241,8 @@ void GMBEOO_set_log_of_GMBE_tracing_ratio(int log_of_GMBE_tracing_ratio)
 
     GMBEOO_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
         GMBEOO_log_of_GMBE_block_len, log_of_GMBE_tracing_ratio);
+
+    info_report("GMBEOO log_of_GMBE_tracing_ratio was set.\n");
 
     g_mutex_unlock(&GMBEOO_monitor_cmds_lock);
 }
