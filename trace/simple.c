@@ -210,10 +210,32 @@ static void GMBEOO_set_log_of_GMBE_block_len_and_log_of_GMBE_tracing_ratio(
     }
     GMBEOO_log_of_GMBE_block_len = log_of_GMBE_block_len;
     GMBEOO_log_of_GMBE_tracing_ratio = log_of_GMBE_tracing_ratio;
-    GMBEOO_mask_of_GMBE_idx_in_GMBE_block = (1 << log_of_GMBE_block_len) - 1;
-    GMBEOO_mask_of_GMBE_block_idx = ((1 << log_of_GMBE_tracing_ratio) - 1) <<
+    GMBEOO_mask_of_GMBE_idx_in_GMBE_block = ((uint64_t)1 << log_of_GMBE_block_len) - 1;
+    GMBEOO_mask_of_GMBE_block_idx = (((uint64_t)1 << log_of_GMBE_tracing_ratio) - 1) <<
                                     log_of_GMBE_block_len;
+    
+    /* Unfortunately, `(uint64_t)1 << 64` is undefined behavior, so we need
+       this special case handling.
+       See https://stackoverflow.com/questions/7401888/why-doesnt-left-bit-shift-for-32-bit-integers-work-as-expected-when-used */
+    if (log_of_GMBE_block_len == 64) {
+        assert(log_of_GMBE_tracing_ratio == 0 &&
+               GMBEOO_mask_of_GMBE_block_idx == 0);
+        GMBEOO_mask_of_GMBE_idx_in_GMBE_block = (uint64_t)-1;
+    }
+    else if (log_of_GMBE_tracing_ratio == 64) {
+        assert(log_of_GMBE_block_len == 0 &&
+               GMBEOO_mask_of_GMBE_idx_in_GMBE_block == 0);
+        GMBEOO_mask_of_GMBE_block_idx = (uint64_t)-1;
+    }
+    
     g_atomic_pointer_set(&GMBEOO_GMBE_idx, 0);
+
+    // printf("log_of_GMBE_block_len: %d\n", log_of_GMBE_block_len);
+    // printf("log_of_GMBE_tracing_ratio: %d\n", log_of_GMBE_tracing_ratio);
+    // printf("((uint64_t)1 << log_of_GMBE_block_len): __%016lx__\n"
+    //        "(((uint64_t)1 << log_of_GMBE_tracing_ratio) - 1): __%016lx__\n",
+    //        ((uint64_t)1 << log_of_GMBE_block_len),
+    //        (((uint64_t)1 << log_of_GMBE_tracing_ratio) - 1));
 
     printf("GMBEOO_mask_of_GMBE_idx_in_GMBE_block: __%016lx__\n"
            "GMBEOO_mask_of_GMBE_block_idx: __%016lx__\n",
